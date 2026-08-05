@@ -43,12 +43,12 @@ def load_stories(
         raise ValueError(f"{path} is missing required column(s): {missing}. "
                          f"Available: {list(df.columns)}")
 
-    keep = {id_col: "story_id", text_col: "text"}
+    rename_map = {id_col: "story_id", text_col: "text"}
     if condition_col and condition_col in df.columns:
-        keep[condition_col] = "cond"
+        rename_map[condition_col] = "cond"
 
-    out = df[list(keep)].rename(columns=keep)
-    # Annotation files have one row per annotator; collapse to one per story.
+    out = df.rename(columns=rename_map)
+    # Deduplicate / collapse to one row per story if needed
     out = out.groupby("story_id", as_index=True).first()
 
     if "cond" in out.columns and normalise_conditions:

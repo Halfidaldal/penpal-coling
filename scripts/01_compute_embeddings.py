@@ -45,7 +45,7 @@ from story_recurrence.io_utils import (
 
 def parse_args():
     p = argparse.ArgumentParser(description="Segment and embed stories.")
-    p.add_argument("--input", required=True, help="CSV with story id, text, condition")
+    p.add_argument("--input", default="data/annotations/penpal_annotations_final.csv", help="CSV with story id, text, condition")
     p.add_argument("--outdir", default="output", help="output directory")
     p.add_argument("--id-col", default="id")
     p.add_argument("--text-col", default="text")

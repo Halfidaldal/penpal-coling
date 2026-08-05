@@ -57,8 +57,8 @@ python scripts/00_build_story_table.py
 
 ```bash
 python scripts/01_compute_embeddings.py \
-  --input data/stories/full_stories_all.csv \
-  --id-col conversation_id --text-col full_story \
+  --input data/annotations/penpal_annotations_final.csv \
+  --id-col id --text-col text \
   --outdir output --batch-size 16
 ```
 
@@ -66,9 +66,7 @@ python scripts/01_compute_embeddings.py \
 python scripts/02_compute_metrics.py --outdir output --target-rr 0.05 --theiler 0
 ```
 
-To restrict to the annotated subset instead, point `--input` at
-`data/annotations/penpal_annotations_final.csv` and drop the `--id-col`/`--text-col`
-flags — that file already uses the default `id` / `text` column names.
+`data/annotations/penpal_annotations_final.csv` is the master 1-row-per-story table containing all 216 unique stories (80 LLM-LLM, 100 Human-AI, 36 Human-Human). Running step 01 and step 02 on this file automatically generates all sentence embeddings, recurrence metrics, and attaches all human quality ratings (`overall_coherence`, `overall_creativity`, `mean_*`, `ann1_*`, `ann2_*`) into `output/story_metrics.csv`.
 
 Embedding model defaults to `Kingsoft-LLM/QZhou-Embedding`, matching the main PENPAL
 pipeline. It is decoder-based, so left padding and `trust_remote_code` are set

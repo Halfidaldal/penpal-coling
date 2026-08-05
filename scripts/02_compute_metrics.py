@@ -133,13 +133,13 @@ def main():
 
     metrics = pd.DataFrame(rows).set_index("story_id")
 
-    # Attach condition / length columns for convenience in R.
+    # Attach condition, length, and annotation metadata columns for convenience in R.
     if stories is not None:
         stories.index.name = "story_id"
-        for col in ("cond", "n_words"):
-            if col in stories.columns:
-                metrics[col] = stories[col].reindex(metrics.index)
-        front = [c for c in ("cond", "n_sentences", "n_words") if c in metrics.columns]
+        extra_cols = [c for c in stories.columns if c != "text" and c not in metrics.columns]
+        for col in extra_cols:
+            metrics[col] = stories[col].reindex(metrics.index)
+        front = [c for c in ("cond", "n_sentences", "n_words", "n_annotators", "overall_coherence", "overall_creativity", "overall_likeability") if c in metrics.columns]
         metrics = metrics[front + [c for c in metrics.columns if c not in front]]
 
     metrics.to_csv(outdir / "story_metrics.csv")
