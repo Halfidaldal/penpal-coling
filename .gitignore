@@ -1,0 +1,19 @@
+# Python
+.venv/
+venv/
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+
+# Pipeline outputs (regenerate with scripts/01 and 02)
+output/*
+!output/.gitkeep
+
+# Credentials -- never commit
+.env
+.env.local
+*.json.key
+*firebase-adminsdk*.json
+
+# macOS
+.DS_Store
