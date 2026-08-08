@@ -7,13 +7,18 @@ the completed story artifact; no turn boundaries are used anywhere.
 ## Layout
 
 ```
-data/annotations/       human ratings + the story-level measure table
-data/stories/           full story text for the whole corpus
-data/embeddings/        per-condition full-story embeddings from the PENPAL pipeline
-notebooks/              creativity / novelty / reader-appreciation analysis
-scripts/                00 build story table -> 01 embed -> 02 metrics
-src/story_recurrence/   the metric implementations
-output/                 pipeline outputs (gitignored)
+data/
+├── interim/
+│   ├── annotations/       human ratings and raw annotation tables
+│   ├── stories/           full story text for the whole corpus
+│   └── embeddings/        sentence embeddings, index, and interim arrays
+└── processed/
+    ├── surprisal/         story-level and window-level surprisal NTR metrics
+    ├── embeddings/        embedding metadata
+    └── rqa/               story recurrence metrics, matrices, and lag profiles
+scripts/                00 build story table -> 01 embed -> 02 metrics -> 03 surprisal
+src/story_recurrence/   the recurrence metric implementations
+src/surprisal_ntr/      the surprisal and stylometry implementations
 ```
 
 ## The corpus
@@ -31,10 +36,9 @@ rated but their text is included, so structural measures can be computed on the 
 216-story corpus and only the rating-linked analyses are restricted to the annotated
 subset.
 
-`scripts/00_build_story_table.py` assembles `data/stories/full_stories_all.csv`
+`scripts/00_build_story_table.py` assembles `data/interim/stories/full_stories_all.csv`
 (216 rows: `conversation_id`, `full_story`, `condition`) from the per-condition interim
-files. `data/annotations/combined_data_2.csv` is the older 156-story text table, kept
-for provenance — it truncated the LLM-LLM condition to the 20 annotated stories.
+files.
 
 ## Install
 
@@ -57,46 +61,47 @@ python scripts/00_build_story_table.py
 
 ```bash
 python scripts/01_compute_embeddings.py \
-  --input data/annotations/penpal_annotations_final.csv \
+  --input data/interim/annotations/penpal_annotations_final.csv \
   --id-col id --text-col text \
-  --outdir output --batch-size 16
+  --outdir data/interim/embeddings --batch-size 16
 ```
 
 ```bash
-python scripts/02_compute_metrics.py --outdir output --target-rr 0.05 --theiler 0
+python scripts/02_compute_metrics.py \
+  --indir data/interim/embeddings \
+  --outdir data/processed/rqa
 ```
 
-`data/annotations/penpal_annotations_final.csv` is the master 1-row-per-story table containing all 216 unique stories (80 LLM-LLM, 100 Human-AI, 36 Human-Human). Running step 01 and step 02 on this file automatically generates all sentence embeddings, recurrence metrics, and attaches all human quality ratings (`overall_coherence`, `overall_creativity`, `mean_*`, `ann1_*`, `ann2_*`) into `output/story_metrics.csv`.
+```bash
+python scripts/03_compute_surprisal_metrics.py --config config.yaml
+```
+
+`data/interim/annotations/penpal_annotations_final.csv` is the master 1-row-per-story table containing all 216 unique stories (80 LLM-LLM, 100 Human-AI, 36 Human-Human). Running step 01 and step 02 on this file automatically generates all sentence embeddings, recurrence metrics, and attaches all human quality ratings into `data/processed/rqa/story_metrics.csv`.
 
 Embedding model defaults to `Kingsoft-LLM/QZhou-Embedding`, matching the main PENPAL
 pipeline. It is decoder-based, so left padding and `trust_remote_code` are set
 automatically. On CUDA it loads in bfloat16; raise `--batch-size` as memory allows.
 
-## The notebook
+## Novelty, Transience, and Resonance Analysis
 
-`notebooks/PENPAL_creativity_analysis.ipynb` covers stylometry, topic- and word-level
-KL novelty/transience/resonance (Barron et al.), surprisal-based versions with a
-window-size robustness sweep, inter-annotator reliability, and which measures predict
-which judgments. It reads `data/annotations/penpal_annotations_final.csv` and writes
-`penpal_measures_all.csv` and `surprisal_window_sweep.csv` back into the same
-directory. Paths resolve relative to the repository root, so run it from `notebooks/`
-or from the root.
+The novelty, transience, and resonance pipeline consists of:
+1. `scripts/03_compute_surprisal_metrics.py`: Computes stylometric features and LM surprisal-based Novelty, Transience, and Resonance (NTR) metrics across sliding word windows. It outputs story-level aggregates (`data/processed/surprisal/penpal_measures_all.csv`) and window-level metrics (`data/processed/surprisal/surprisal_window_level.csv`).
+2. `analysis/novelty_transience_resonance.Rmd`: R Markdown report performing condition comparisons, inter-annotator reliability, predictor correlations with human judgments, and **Resonance ~ Novelty * Condition** interaction modeling to analyze local innovation bias across conditions.
 
-The surprisal section defaults to `google/gemma-4-31b` and needs a GPU. Set
-`RUN_SURPRISAL = False` in the config cell to skip it.
 
 ## Outputs of the metric pipeline
 
-| file | contents |
-|---|---|
-| `story_metrics.csv` | **main deliverable** — one row per story, all scalars |
-| `lag_profiles.csv` | long format `story_id, lag, mean_sim, n_pairs` |
-| `sentence_index.csv` | every sentence with story id and position |
-| `stories.csv` | story id, condition, sentence and word counts |
-| `sentence_embeddings.npz` | per-story arrays `(n_sentences, dim)` |
-| `similarity_matrices.npz` / `distance_matrices.npz` | per-story cosine matrices |
-| `recurrence_matrices_rr.npz` / `_eps.npz` | per-story binary recurrence matrices |
-| `*_metadata.json` | model, parameters, versions, timestamp |
+| location | file | contents |
+|---|---|---|
+| `data/processed/rqa/` | `story_metrics.csv` | **main deliverable** — one row per story, all scalars |
+| `data/processed/rqa/` | `lag_profiles.csv` | long format `story_id, lag, mean_sim, n_pairs` |
+| `data/interim/embeddings/` | `sentence_index.csv` | every sentence with story id and position |
+| `data/interim/embeddings/` | `stories.csv` | story id, condition, sentence and word counts |
+| `data/interim/embeddings/` | `sentence_embeddings.npz` | per-story arrays `(n_sentences, dim)` |
+| `data/processed/rqa/` | `similarity_matrices.npz` / `distance_matrices.npz` | per-story cosine matrices |
+| `data/processed/rqa/` | `recurrence_matrices_rr.npz` / `_eps.npz` | per-story binary recurrence matrices |
+| `data/processed/surprisal/` | `penpal_measures_all.csv` | story-level surprisal & stylometry table |
+| `data/processed/surprisal/` | `surprisal_window_level.csv` | window-level surprisal terms |
 
 ## Why these measures
 

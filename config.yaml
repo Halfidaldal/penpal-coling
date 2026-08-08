@@ -1,0 +1,90 @@
+# PENPAL-COLING configuration
+# All hyperparameters live here. Scripts in scripts/ are thin drivers that read
+# this file; the computation lives in src/. Override the file location with
+# `--config path/to/other.yaml` if you want to keep several presets side by side.
+
+paths:
+  # Inputs
+  annotations: data/interim/annotations/penpal_annotations_final.csv
+  # Outputs
+  story_metrics: data/processed/surprisal/penpal_measures_all.csv
+  window_metrics: data/processed/surprisal/surprisal_window_level.csv
+  run_metadata: data/processed/surprisal/surprisal_run_metadata.json
+
+data:
+  id_col: id
+  text_col: text
+  condition_col: condition
+
+  # Raw label -> analysis label
+  condition_map:
+    hh: HH
+    ha: H-LLM
+    aa: LLM-LLM
+  condition_order: [HH, H-LLM, LLM-LLM]
+  # Ordinal coding used for the monotone trend test
+  llmness:
+    HH: 0
+    H-LLM: 1
+    LLM-LLM: 2
+
+  # The annotation file now contains the FULL corpus (212 stories), including
+  # stories nobody has rated yet. Keeping them means the computational measures
+  # and the condition contrasts run on all 212 (LLM-LLM n = 80 rather than 20),
+  # while any analysis that needs ratings simply drops the NaN rows downstream.
+  # Set min_annotators: 2 to restrict to the fully-annotated subset instead.
+  min_annotators: 0
+
+  # The six annotated dimensions: analysis name -> column stem in the source file.
+  # Wide files carry these as mean_<stem> / ann1_<stem> / ann2_<stem>;
+  # legacy long files carry them as bare <stem> with one row per annotator.
+  dimensions:
+    consistency: coherence_element_consistency
+    coherence: coherence_logical_progression
+    originality: creativity_originality
+    surprisingness: creativity_surprisingness
+    enjoyment: likeability_enjoyability
+    quality: likeability_quality
+
+  # Unweighted means of theoretically paired dimensions
+  composites:
+    coherence_comp: [consistency, coherence]
+    creativity_comp: [originality, surprisingness]
+    attract_comp: [enjoyment, quality]
+
+stylometry:
+  enabled: true
+  # Corpus-relative semantic distinctiveness = 1 - cosine to nearest other story
+  tfidf_ngram_range: [1, 2]
+  tfidf_min_df: 2
+
+surprisal:
+  enabled: true
+
+  model_name: google/gemma-4-31b
+  device: auto          # auto | cuda | mps | cpu
+  dtype: auto           # auto (bfloat16 on CUDA, float32 otherwise) | float32 | float16 | bfloat16
+  hf_token: null        # prefer the HF_TOKEN environment variable; never commit a token
+
+  # Window length in WORDS. 14 is deliberately sub-turn: mean turn length in the
+  # source corpus is 26-28 words, so a 14-word window sits mostly inside a single
+  # author's contribution. This makes the measure local by design and keeps
+  # windows from straddling author transitions.
+  window_words: 14
+  min_window_words: 3   # drop trailing windows shorter than this
+
+  # null = infer from the model config (n_positions / max_position_embeddings)
+  max_context: null
+
+  # Novelty is undefined for the first window and transience for the last, so
+  # averaging each over its own valid range makes the three story means mutually
+  # inconsistent (resonance would not equal novelty - transience). Averaging all
+  # three over the common interior range keeps the identity exact.
+  common_index_range: true
+
+  save_window_level: true
+  # Also export the raw surprisal terms per window, so the derived measures can
+  # be audited and the novelty/transience coupling diagnosed.
+  save_raw_terms: true
+
+  progress: true

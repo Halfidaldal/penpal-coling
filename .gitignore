@@ -5,9 +5,9 @@ __pycache__/
 *.pyc
 .ipynb_checkpoints/
 
-# Pipeline outputs (regenerate with scripts/01 and 02)
-output/*
-!output/.gitkeep
+# Generated interim embeddings & processed computation outputs (regenerate with scripts/)
+data/interim/embeddings/*.npz
+data/interim/embeddings/*.parquet
 
 # Credentials -- never commit
 .env

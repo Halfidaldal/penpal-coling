@@ -1,0 +1,74 @@
+---
+title: "RQA Comparison: Human-AI vs Human-Human vs AI-AI"
+subtitle: "Cross-Condition Embeddings and RQA Analysis"
+author: "PENPAL Project"
+date: "`r Sys.Date()`"
+output:
+  pdf_document:
+    toc: true
+    toc_depth: 3
+    number_sections: true
+    latex_engine: xelatex
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 3
+    code_folding: hide
+    theme: united
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = FALSE,
+  warning = FALSE,
+  message = FALSE,
+  fig.width = 10,
+  fig.height = 6,
+  dpi = 300
+)
+
+source(here::here("analysis/comparison_utils.R"))
+
+GRAPHS_DIR <- file.path(PROJECT_ROOT, "analysis", "figures")
+dir.create(GRAPHS_DIR, showWarnings = FALSE, recursive = TRUE)
+
+pacman::p_load(
+  lme4,
+  lmerTest,
+  patchwork,
+  emmeans,
+  effectsize
+)
+
+theme_set(theme_comparison())
+```
+
+# Load Data
+
+```{r load-data}
+df_raw <- load_story_metrics() 
+df_lag <- load_lag_profiles()
+df_sentence_index <- load_sentence_index()
+df_raw %>%
+  group_by(condition) %>%
+  summarise(
+    n_stories = n_distinct(conversation_id),
+    n_turns = n(),
+    .groups = "drop"
+  ) %>%
+  knitr::kable(caption = "Loaded data by condition")
+
+df_lag %>%
+  group_by(condition) %>%
+  summarise(
+    n_stories = n_distinct(story_id),
+    n_turns = n(),
+    .groups = "drop"
+  ) %>%
+  knitr::kable(caption = "Loaded data by condition")
+```
+
+
+```{r}
+summarize_by_condition(df_raw, "rr_ENTR")
+```

@@ -9,8 +9,8 @@ Unlike the annotation set (which covers 147 stories: 91 ha, 36 hh, 20 aa), this
 includes *every* story, so the LLM-LLM condition contributes all 80 rather than
 the 20 that were annotated. Total: 216 stories (100 ha, 36 hh, 80 aa).
 
-Input:  data/stories/interim/<condition>_stories_full_text_filtered.csv
-Output: data/stories/full_stories_all.csv
+Input:  data/interim/stories/<condition>_stories_full_text_filtered.csv
+Output: data/interim/stories/full_stories_all.csv
 """
 import argparse
 from pathlib import Path
@@ -37,8 +37,8 @@ EXCLUDED_STORY_IDS = {
 
 def main():
     p = argparse.ArgumentParser(description="Build the combined story table.")
-    p.add_argument("--indir", default=str(ROOT / "data" / "stories" / "interim"))
-    p.add_argument("--output", default=str(ROOT / "data" / "stories" / "full_stories_all.csv"))
+    p.add_argument("--indir", default=str(ROOT / "data" / "interim" / "stories"))
+    p.add_argument("--output", default=str(ROOT / "data" / "interim" / "stories" / "full_stories_all.csv"))
     args = p.parse_args()
 
     indir = Path(args.indir)

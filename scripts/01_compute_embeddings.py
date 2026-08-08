@@ -14,15 +14,15 @@ Outputs (into --outdir):
 
 Usage (annotated subset, 147 stories):
     python scripts/01_compute_embeddings.py \
-        --input data/annotations/penpal_annotations_final.csv \
-        --outdir output \
+        --input data/interim/annotations/penpal_annotations_final.csv \
+        --outdir data/interim/embeddings \
         --batch-size 16
 
 Usage (full corpus, 216 stories -- run scripts/00_build_story_table.py first):
     python scripts/01_compute_embeddings.py \
-        --input data/stories/full_stories_all.csv \
+        --input data/interim/stories/full_stories_all.csv \
         --id-col conversation_id --text-col full_story \
-        --outdir output \
+        --outdir data/interim/embeddings \
         --batch-size 16
 """
 
@@ -45,8 +45,8 @@ from story_recurrence.io_utils import (
 
 def parse_args():
     p = argparse.ArgumentParser(description="Segment and embed stories.")
-    p.add_argument("--input", default="data/annotations/penpal_annotations_final.csv", help="CSV with story id, text, condition")
-    p.add_argument("--outdir", default="output", help="output directory")
+    p.add_argument("--input", default="data/interim/annotations/penpal_annotations_final.csv", help="CSV with story id, text, condition")
+    p.add_argument("--outdir", default="data/interim/embeddings", help="output directory")
     p.add_argument("--id-col", default="id")
     p.add_argument("--text-col", default="text")
     p.add_argument("--condition-col", default="condition")

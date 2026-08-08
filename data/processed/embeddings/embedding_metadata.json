@@ -1,0 +1,15 @@
+{
+  "step": "01_compute_embeddings_hf_job",
+  "timestamp": "2026-08-06T13:06:49.857185",
+  "n_stories": 212,
+  "n_sentences": 6154,
+  "embedding_model": "Kingsoft-LLM/QZhou-Embedding",
+  "embedding_dim": 3584,
+  "dtype": "torch.bfloat16",
+  "device": "cuda",
+  "batch_size": 16,
+  "segmenter": "spacy",
+  "spacy_model": "en_core_web_md",
+  "min_sentence_words": 3,
+  "normalised": true
+}

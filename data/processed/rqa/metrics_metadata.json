@@ -1,0 +1,17 @@
+{
+  "step": "02_compute_metrics",
+  "timestamp": "2026-08-07T14:04:20.338669",
+  "n_stories": 212,
+  "theiler": 0,
+  "target_rr": 0.15,
+  "epsilon_fixed_corpus": 0.3058628439903259,
+  "l_min": 2,
+  "v_min": 2,
+  "edge_frac": 0.2,
+  "decay_min_pairs": 5,
+  "decay_max_lag_frac": 0.5,
+  "versions": {
+    "numpy": "2.5.1",
+    "pandas": "3.0.5"
+  }
+}

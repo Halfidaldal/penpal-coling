@@ -47,8 +47,10 @@ from story_recurrence.io_utils import load_embeddings, save_matrices, save_metad
 
 def parse_args():
     p = argparse.ArgumentParser(description="Compute story-structure metrics.")
-    p.add_argument("--outdir", default="output",
-                   help="directory holding step-01 outputs; results written here too")
+    p.add_argument("--indir", default="data/interim/embeddings",
+                   help="directory holding step-01 outputs (embeddings, index, stories)")
+    p.add_argument("--outdir", default="data/processed/rqa",
+                   help="directory where metrics and matrices will be written")
     p.add_argument("--theiler", type=int, default=0,
                    help="exclude cells with |i-j| <= theiler. 0 = drop only the "
                         "main diagonal; 1 = also drop adjacent sentences")
@@ -70,9 +72,10 @@ def parse_args():
 
 def main():
     args = parse_args()
+    indir = Path(args.indir)
     outdir = Path(args.outdir)
 
-    emb_path = outdir / "sentence_embeddings.npz"
+    emb_path = indir / "sentence_embeddings.npz"
     if not emb_path.exists():
         raise FileNotFoundError(
             f"{emb_path} not found — run 01_compute_embeddings.py first.")
@@ -80,7 +83,7 @@ def main():
     embeddings = load_embeddings(emb_path)
     print(f"Loaded embeddings for {len(embeddings)} stories")
 
-    stories_path = outdir / "stories.csv"
+    stories_path = indir / "stories.csv"
     stories = (pd.read_csv(stories_path, index_col=0)
                if stories_path.exists() else None)
 

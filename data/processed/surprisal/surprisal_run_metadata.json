@@ -1,0 +1,27 @@
+{
+  "timestamp": "2026-08-07T15:50:40.897357",
+  "step": "03_compute_surprisal_hf_job",
+  "n_stories": 212,
+  "n_rated_stories": 147,
+  "condition_counts": {
+    "H-LLM": 96,
+    "LLM-LLM": 80,
+    "HH": 36
+  },
+  "stylometry_enabled": true,
+  "surprisal": {
+    "model_name": "google/gemma-4-31b",
+    "window_words": 14,
+    "min_window_words": 3,
+    "common_index_range": true,
+    "save_raw_terms": true
+  },
+  "model_dtype": "torch.bfloat16",
+  "model_device": "cuda",
+  "max_context": 1024,
+  "versions": {
+    "numpy": "2.5.1",
+    "pandas": "3.0.5",
+    "torch": "2.13.0+cu130"
+  }
+}

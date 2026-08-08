@@ -1,0 +1,481 @@
+---
+title: "PENPAL — Novelty, Transience, and Resonance (window-level, turn-agnostic)"
+author: "PENPAL Collaboration Team"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    code_folding: show
+    theme: flatly
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE, fig.width = 8, fig.height = 5)
+
+library(tidyverse)
+library(lme4)
+library(lmerTest)
+library(knitr)
+library(broom)
+library(gridExtra)
+
+theme_set(theme_minimal(base_size = 13))
+
+condition_colors <- c(
+  "HH"      = "#2ca02c",  # Green
+  "H-LLM"   = "#1f77b4",  # Blue
+  "LLM-LLM" = "#ff7f0e"   # Orange
+)
+```
+
+## 1. Overview & Setup
+
+Surprisal-based **Novelty**, **Transience** and **Resonance** across HH, H-LLM and
+LLM-LLM, computed on fixed word windows of the completed story with **no turn
+structure**.
+
+Two things differ from the EMNLP analysis and govern how everything below must
+be read:
+
+1. **The unit is a sub-turn window, not a turn.** At `w = 14` words (mean turn
+   length in the source corpus is 26–28), a window sits mostly *inside* one
+   author's contribution, and the "next window" is usually the same author
+   continuing. Transience here therefore measures **local continuation**, not
+   **uptake by a partner**. It is not the same construct as EMNLP's transience,
+   and the innovation-bias slope is not comparable to EMNLP's turn-level number.
+2. **The estimand must be within-story.** EMNLP modelled turns nested in stories
+   (a within-story process). A story-level regression answers a different,
+   between-story question and is reported here only as a diagnostic (§6).
+
+```{r load-data}
+root_dir <- if (basename(getwd()) == "analysis") ".." else "."
+
+measures_path <- file.path(root_dir, "data", "processed", "surprisal", "penpal_measures_all.csv")
+window_path   <- file.path(root_dir, "data", "processed", "surprisal", "surprisal_window_level.csv")
+ann_path      <- file.path(root_dir, "data", "interim", "annotations", "penpal_annotations_final.csv")
+
+condition_levels <- c("HH", "H-LLM", "LLM-LLM")
+
+df_story <- read_csv(measures_path, show_col_types = FALSE) %>%
+  mutate(cond = factor(cond, levels = condition_levels),
+         llm  = as.numeric(cond) - 1)
+
+df_ann <- if (file.exists(ann_path)) read_csv(ann_path, show_col_types = FALSE) else NULL
+
+# The window file is REQUIRED for the primary model. Fail loudly rather than
+# letting a downstream `if (!is.null(df_window))` silently skip the analysis --
+# that is exactly how the mixed model went missing from earlier runs.
+has_window <- file.exists(window_path)
+if (!has_window) {
+  warning(
+    "MISSING: ", window_path, "\n",
+    "The window-level mixed model (Section 5) is the primary analysis and cannot run.\n",
+    "Regenerate it with:\n",
+    "  python scripts/03_compute_surprisal_metrics.py --model google/gemma-4-31b --window 14\n",
+    call. = FALSE
+  )
+}
+
+df_window <- if (has_window) {
+  read_csv(window_path, show_col_types = FALSE) %>%
+    mutate(cond = factor(cond, levels = condition_levels))
+} else NULL
+
+cat("Story-level rows :", nrow(df_story), "\n")
+cat("Window-level rows:", if (is.null(df_window)) "MISSING" else nrow(df_window), "\n")
+if (!is.null(df_window)) {
+  cat("Windows per story: mean",
+      round(mean(table(df_window$id)), 1),
+      "| range", paste(range(table(df_window$id)), collapse = "-"), "\n")
+}
+```
+
+---
+
+## 2. Human Evaluations & Inter-Annotator Reliability
+
+```{r human-ratings}
+dims <- c("consistency", "coherence", "originality", "surprisingness", "enjoyment", "quality")
+out_cols <- c(dims, "overall")
+
+# The measures table now covers the FULL corpus, including stories nobody has
+# rated. Report both n's so the ratings are not read as covering all stories.
+df_story %>%
+  group_by(cond) %>%
+  summarise(n_stories = n(),
+            n_rated = sum(!is.na(overall)),
+            across(all_of(intersect(out_cols, colnames(df_story))),
+                   ~ round(mean(.x, na.rm = TRUE), 2))) %>%
+  kable(caption = "Mean human ratings by condition (means over rated stories only)")
+```
+
+```{r mw-contrasts}
+pairs <- list(c("H-LLM", "HH"), c("H-LLM", "LLM-LLM"), c("HH", "LLM-LLM"))
+
+map_dfr(pairs, function(pair) {
+  a <- pair[1]; b <- pair[2]
+  p_vals <- map_dbl(dims, function(m) {
+    va <- df_story %>% filter(cond == a) %>% pull(m) %>% na.omit()
+    vb <- df_story %>% filter(cond == b) %>% pull(m) %>% na.omit()
+    wilcox.test(va, vb)$p.value
+  })
+  tibble(Dimension = dims, Contrast = paste(a, "vs", b),
+         p_value = p_vals, q_FDR = p.adjust(p_vals, method = "BH"))
+}) %>%
+  mutate(across(c(p_value, q_FDR), ~ round(.x, 4))) %>%
+  kable(caption = "Mann-Whitney contrasts on human ratings (BH-FDR within contrast)")
+```
+
+### Reliability, pooled **and within condition**
+
+Pooled reliability is inflated by between-condition variance: two annotators who
+merely agree that HH stories are more original than LLM-LLM ones will show a
+respectable pooled rho without agreeing about any individual story. The
+within-condition columns are the honest ones. Absolute agreement is reported
+alongside rho because correlation is depressed by range restriction, which bites
+hard in LLM-LLM where several dimensions sit at ceiling.
+
+```{r inter-annotator}
+# The annotation file is WIDE: one row per story with ann1_* / ann2_* columns
+# (there is no annotation_id / long format any more).
+raw_dims <- c(
+  consistency    = "coherence_element_consistency",
+  coherence      = "coherence_logical_progression",
+  originality    = "creativity_originality",
+  surprisingness = "creativity_surprisingness",
+  enjoyment      = "likeability_enjoyability",
+  quality        = "likeability_quality"
+)
+
+if (!is.null(df_ann) && all(paste0("ann1_", raw_dims) %in% colnames(df_ann))) {
+
+  ann_cond <- df_ann %>%
+    mutate(cond = factor(recode(tolower(condition),
+                                hh = "HH", ha = "H-LLM", aa = "LLM-LLM"),
+                         levels = condition_levels))
+
+  pick <- function(cond_filter = NULL) {
+    map_dfr(names(raw_dims), function(d) {
+      a <- suppressWarnings(as.numeric(ann_cond[[paste0("ann1_", raw_dims[[d]])]]))
+      b <- suppressWarnings(as.numeric(ann_cond[[paste0("ann2_", raw_dims[[d]])]]))
+      keep <- !is.na(a) & !is.na(b)
+      if (!is.null(cond_filter)) keep <- keep & ann_cond$cond == cond_filter
+      if (sum(keep) < 3) {
+        return(tibble(Dimension = d, rho = NA_real_, mad = NA_real_, n = sum(keep)))
+      }
+      tibble(Dimension = d,
+             rho = suppressWarnings(cor(a[keep], b[keep], method = "spearman")),
+             mad = mean(abs(a[keep] - b[keep])),
+             n   = sum(keep))
+    })
+  }
+
+  rel_tbl <- pick() %>%
+    select(Dimension, rho_pooled = rho, mad_pooled = mad, n_pooled = n) %>%
+    left_join(pick("HH")      %>% select(Dimension, rho_HH = rho, mad_HH = mad), by = "Dimension") %>%
+    left_join(pick("H-LLM")   %>% select(Dimension, rho_HLLM = rho, mad_HLLM = mad), by = "Dimension") %>%
+    left_join(pick("LLM-LLM") %>% select(Dimension, rho_AA = rho, mad_AA = mad), by = "Dimension") %>%
+    mutate(across(where(is.numeric), ~ round(.x, 3)))
+
+  kable(rel_tbl,
+        caption = paste("Inter-annotator reliability, pooled vs within condition.",
+                        "rho = Spearman; mad = mean |ann1 - ann2| on the 5-point scale.",
+                        "Pooled rho is inflated by between-condition variance;",
+                        "mad is robust to the ceiling effects in LLM-LLM."))
+} else {
+  message("Annotation file does not have the expected ann1_/ann2_ columns; skipping reliability.")
+}
+```
+
+---
+
+## 3. NTR descriptives by condition
+
+```{r ntr-descriptives}
+surp_cols <- c("s_novelty", "s_transience", "s_resonance")
+
+df_story %>%
+  group_by(cond) %>%
+  summarise(n = n(),
+            across(all_of(surp_cols),
+                   list(mean = ~ round(mean(.x, na.rm = TRUE), 3),
+                        sd   = ~ round(sd(.x, na.rm = TRUE), 3)),
+                   .names = "{.col}_{.fn}")) %>%
+  kable(caption = "Surprisal NTR by condition (bits). Less negative = more novel / more transient.")
+```
+
+## 4. Trend with model involvement (RQ1)
+
+The simple ordinal trend across HH < H-LLM < LLM-LLM. This is the most robust
+result in the surprisal family and is reported independently of any slope model.
+
+```{r llmness-trend}
+map_dfr(surp_cols, function(m) {
+  ct <- suppressWarnings(cor.test(df_story$llm, df_story[[m]],
+                                  method = "spearman", exact = FALSE))
+  kw <- kruskal.test(df_story[[m]] ~ df_story$cond)
+  tibble(Metric = m,
+         rho_LLMness = round(unname(ct$estimate), 3),
+         p_trend = signif(ct$p.value, 3),
+         KW_chisq = round(unname(kw$statistic), 2),
+         p_KW = signif(kw$p.value, 3))
+}) %>%
+  mutate(q_FDR = signif(p.adjust(p_trend, method = "BH"), 3)) %>%
+  kable(caption = "Monotone trend with model involvement (Spearman on ordinal condition) + Kruskal-Wallis")
+```
+
+```{r ntr-contrasts}
+map_dfr(pairs, function(pair) {
+  a <- pair[1]; b <- pair[2]
+  p_vals <- map_dbl(surp_cols, function(m) {
+    va <- df_story %>% filter(cond == a) %>% pull(m) %>% na.omit()
+    vb <- df_story %>% filter(cond == b) %>% pull(m) %>% na.omit()
+    wilcox.test(va, vb)$p.value
+  })
+  tibble(Metric = surp_cols, Contrast = paste(a, "vs", b),
+         p_value = signif(p_vals, 3),
+         q_FDR = signif(p.adjust(p_vals, method = "BH"), 3))
+}) %>%
+  kable(caption = "Pairwise condition contrasts on NTR (BH-FDR within contrast)")
+```
+
+---
+
+## 5. Innovation bias — window-level mixed models (primary)
+
+### 5.1 Why the predictor must be decomposed
+
+`s_resonance` is by construction `s_novelty - s_transience`. Regressing
+resonance on novelty therefore has the predictor inside the outcome, and the
+slope is an exact reparameterisation:
+
+$$\beta_{\text{res}\sim\text{nov}} \;=\; 1 - \beta_{\text{tra}\sim\text{nov}}$$
+
+So "innovation bias > 1" is *identically* the statement "more novel windows have
+**lower** (more negative) transience", i.e. stronger forward binding. Both
+parameterisations are reported; the transience model is the transparent one.
+
+A raw `s_novelty` predictor also confounds two different comparisons: differences
+*between* stories (some stories are globally less predictable) and variation
+*within* a story (this window is more surprising than that story's norm). EMNLP
+estimated the within-story process. We therefore split novelty into a
+story-mean (between) and a story-centred deviation (within).
+
+```{r window-prep, eval = has_window}
+df_win <- df_window %>%
+  filter(!is.na(s_resonance), !is.na(s_novelty), !is.na(s_transience), !is.na(cond)) %>%
+  group_by(id) %>%
+  mutate(nov_story_mean = mean(s_novelty, na.rm = TRUE),
+         nov_within     = s_novelty - nov_story_mean) %>%
+  ungroup() %>%
+  mutate(nov_story_mean_c = as.numeric(scale(nov_story_mean, scale = FALSE)))
+
+cat("Windows:", nrow(df_win), "in", n_distinct(df_win$id), "stories\n")
+cat("Within-story SD of novelty:", round(sd(df_win$nov_within), 3),
+    "| between-story SD:", round(sd(df_win$nov_story_mean), 3), "\n")
+```
+
+### 5.2 Primary model — transience on within-story novelty
+
+```{r window-model-transience, eval = has_window}
+m_tra <- lmer(
+  s_transience ~ nov_within * cond + nov_story_mean_c + (1 + nov_within | id),
+  data = df_win,
+  control = lmerControl(optimizer = "bobyqa", optCtrl = list(maxfun = 2e5))
+)
+
+# Fall back to a random intercept if the random-slope model is singular.
+if (isSingular(m_tra, tol = 1e-4)) {
+  message("Random-slope model singular; refitting with random intercept only.")
+  m_tra <- lmer(
+    s_transience ~ nov_within * cond + nov_story_mean_c + (1 | id),
+    data = df_win,
+    control = lmerControl(optimizer = "bobyqa", optCtrl = list(maxfun = 2e5))
+  )
+}
+
+summary(m_tra)
+anova(m_tra)
+```
+
+### 5.3 Same model in the resonance parameterisation
+
+Identical fit, rescaled; included so the slopes are directly comparable to how
+EMNLP reported them.
+
+```{r window-model-resonance, eval = has_window}
+m_res <- update(m_tra, s_resonance ~ .)
+summary(m_res)
+```
+
+### 5.4 Per-condition slopes
+
+```{r window-slopes, eval = has_window}
+if (requireNamespace("emmeans", quietly = TRUE)) {
+  library(emmeans)
+  emm_options(lmerTest.limit = 10000, pbkrtest.limit = 10000)
+  tr_slopes  <- emtrends(m_tra, ~ cond, var = "nov_within")
+  res_slopes <- emtrends(m_res, ~ cond, var = "nov_within")
+
+  as.data.frame(tr_slopes) %>%
+    rename(any_of(c(lower.CL = "asymp.LCL", upper.CL = "asymp.UCL"))) %>%
+    select(cond, transience_slope = nov_within.trend, SE, lower.CL, upper.CL) %>%
+    left_join(as.data.frame(res_slopes) %>%
+                rename(any_of(c(lower.CL = "asymp.LCL", upper.CL = "asymp.UCL"))) %>%
+                select(cond, resonance_slope = nov_within.trend), by = "cond") %>%
+    mutate(check_1_minus = round(1 - transience_slope, 3),
+           across(where(is.numeric), ~ round(.x, 3))) %>%
+    kable(caption = "Within-story slopes by condition. resonance_slope should equal 1 - transience_slope.")
+
+  cat("\nPairwise contrasts of the within-story novelty slope:\n")
+  print(pairs(tr_slopes, adjust = "BH"))
+} else {
+  message("Install `emmeans` for per-condition slopes.")
+}
+```
+
+---
+
+## 6. Diagnostic: why the story-level model is NOT reported
+
+The previous version of this document fitted `lm(s_resonance ~ s_novelty * cond)`
+on 147 story means. That model is retained here **only** to show why it cannot
+be interpreted as innovation bias.
+
+At story level the slope is again `1 - beta(transience ~ novelty)`, and between
+stories novelty and transience are strongly *positively* coupled: both are built
+from the same contextual-surprisal term, and both mostly track a single nuisance
+dimension — how predictable the story is to the LM overall. Because that
+coupling is positive, every story-level slope is forced below 1. And because the
+coupling is *strongest* in the most stylistically homogeneous condition, the
+slope ordering simply inverts within-condition homogeneity. It carries no
+information about narrative uptake.
+
+```{r story-level-diagnostic}
+diag_tbl <- df_story %>%
+  filter(!is.na(s_novelty), !is.na(s_transience), !is.na(s_resonance)) %>%
+  group_by(cond) %>%
+  summarise(
+    n              = n(),
+    slope_res_nov  = round(coef(lm(s_resonance  ~ s_novelty))[2], 3),
+    slope_tra_nov  = round(coef(lm(s_transience ~ s_novelty))[2], 3),
+    one_minus_tra  = round(1 - coef(lm(s_transience ~ s_novelty))[2], 3),
+    r_nov_tra      = round(cor(s_novelty, s_transience), 3),
+    sd_novelty     = round(sd(s_novelty), 3),
+    .groups = "drop"
+  )
+kable(diag_tbl,
+      caption = "Story-level (BETWEEN-story) slopes. slope_res_nov tracks 1 - slope_tra_nov; the ordering follows r(nov,tra), i.e. within-condition homogeneity, not uptake.")
+
+gap <- with(df_story, abs(s_resonance - (s_novelty - s_transience)))
+cat("Identity check  max |s_resonance - (s_novelty - s_transience)| =",
+    round(max(gap, na.rm = TRUE), 4), "\n")
+cat("If this exceeds ~1e-6, the three story means were averaged over different\n",
+    "window index ranges -- regenerate with the fixed scripts/03_compute_surprisal_metrics.py\n")
+```
+
+---
+
+## 7. Correlations with human judgments
+
+Reported for the three NTR measures and the stylometric block, with FDR across
+all tested pairs. Treat as exploratory: the confirmatory claims are the
+condition trends in §4.
+
+```{r correlations}
+style_cols <- c("n_words", "n_sentences", "mean_word_length", "mean_sentence_length",
+                "ttr", "hapax_ratio", "comma_density", "flesch_approx",
+                "adjacent_sentence_similarity", "semantic_distinctiveness")
+existing_meas <- intersect(c(style_cols, surp_cols), colnames(df_story))
+
+corr_long <- expand_grid(Metric = existing_meas, Rating = dims) %>%
+  mutate(res = map2(Metric, Rating, function(m, d) {
+    v <- df_story[[m]]; r <- df_story[[d]]
+    ok <- !is.na(v) & !is.na(r)
+    if (sum(ok) < 6) return(tibble(rho = NA_real_, p = NA_real_))
+    ct <- suppressWarnings(cor.test(v[ok], r[ok], method = "spearman", exact = FALSE))
+    tibble(rho = unname(ct$estimate), p = ct$p.value)
+  })) %>%
+  unnest(res) %>%
+  mutate(q_FDR = p.adjust(p, method = "BH"))
+
+corr_long %>%
+  select(Metric, Rating, rho) %>%
+  pivot_wider(names_from = Rating, values_from = rho) %>%
+  mutate(across(-Metric, ~ round(.x, 2))) %>%
+  kable(caption = "Spearman rho: computational metrics x human ratings")
+
+corr_long %>%
+  filter(!is.na(q_FDR), q_FDR < .05) %>%
+  arrange(q_FDR) %>%
+  mutate(rho = round(rho, 3), q_FDR = signif(q_FDR, 3)) %>%
+  select(Metric, Rating, rho, q_FDR) %>%
+  kable(caption = "Surviving FDR < .05")
+```
+
+---
+
+## 8. Visualizations
+
+```{r fig-eval-profile, fig.cap="Human evaluation profile by condition"}
+df_story %>%
+  pivot_longer(all_of(dims), names_to = "Dimension", values_to = "Rating") %>%
+  mutate(Dimension = factor(Dimension, levels = dims)) %>%
+  group_by(cond, Dimension) %>%
+  summarise(Mean_Rating = mean(Rating, na.rm = TRUE), .groups = "drop") %>%
+  ggplot(aes(Dimension, Mean_Rating, color = cond, group = cond)) +
+  geom_line(linewidth = 1.2) + geom_point(size = 3) +
+  scale_color_manual(values = condition_colors) +
+  labs(y = "Mean rating (1-5)", color = "Condition",
+       title = "Human evaluation profile by condition") +
+  theme(axis.text.x = element_text(angle = 25, hjust = 1))
+```
+
+```{r fig-surprisal-ntr, fig.cap="Surprisal NTR by condition"}
+df_story %>%
+  pivot_longer(all_of(surp_cols), names_to = "Metric", values_to = "Value") %>%
+  mutate(Metric = factor(Metric, levels = surp_cols,
+                         labels = c("Novelty", "Transience", "Resonance"))) %>%
+  group_by(cond, Metric) %>%
+  summarise(Mean = mean(Value, na.rm = TRUE),
+            SE = sd(Value, na.rm = TRUE) / sqrt(n()), .groups = "drop") %>%
+  ggplot(aes(cond, Mean, color = cond)) +
+  geom_point(size = 3) +
+  geom_errorbar(aes(ymin = Mean - 1.96 * SE, ymax = Mean + 1.96 * SE),
+                width = 0.2, linewidth = 0.9) +
+  facet_wrap(~ Metric, scales = "free_y") +
+  scale_color_manual(values = condition_colors) +
+  labs(x = "Condition", y = "Surprisal (bits)", color = "Condition",
+       title = "Surprisal NTR across conditions")
+```
+
+### Within-story innovation bias
+
+Each thin line is one story's own within-story relationship; thick lines are the
+condition-level fits. This is the estimand the mixed model targets — unlike a
+scatter of story means, which shows only between-story variation.
+
+```{r fig-within-slopes, eval = has_window, fig.cap="Within-story transience vs novelty", fig.height=4.2}
+ggplot(df_win, aes(nov_within, s_transience, color = cond)) +
+  geom_point(alpha = 0.12, size = 0.7) +
+  geom_smooth(aes(group = id), method = "lm", se = FALSE,
+              linewidth = 0.25, alpha = 0.3) +
+  geom_smooth(method = "lm", se = TRUE, linewidth = 1.4, color = "black") +
+  facet_wrap(~ cond) +
+  scale_color_manual(values = condition_colors, guide = "none") +
+  labs(x = "Novelty (within-story centred, bits)", y = "Transience (bits)",
+       title = "Within-story slope of transience on novelty")
+```
+
+```{r fig-story-level-diagnostic, fig.cap="BETWEEN-story association (diagnostic only -- not innovation bias)"}
+ggplot(df_story, aes(s_novelty, s_resonance, color = cond, fill = cond)) +
+  geom_point(alpha = 0.6, size = 2) +
+  geom_smooth(method = "lm", se = TRUE, linewidth = 1.2) +
+  scale_color_manual(values = condition_colors) +
+  scale_fill_manual(values = condition_colors) +
+  labs(x = "Story-mean novelty (bits)", y = "Story-mean resonance (bits)",
+       color = "Condition", fill = "Condition",
+       title = "Between-story resonance vs novelty",
+       subtitle = "Diagnostic only: slope = 1 - beta(transience~novelty), driven by nov/tra coupling")
+```
