@@ -21,12 +21,19 @@ data:
     hh: HH
     ha: H-LLM
     aa: LLM-LLM
-  condition_order: [HH, H-LLM, LLM-LLM]
-  # Ordinal coding used for the monotone trend test
+    # Cross-model LLM-LLM, from scripts/00a_simulate_cross_model.py. Inert
+    # until that condition's stories exist.
+    aa_cross: LLM-LLM-cross
+  condition_order: [HH, H-LLM, LLM-LLM, LLM-LLM-cross]
+  # Ordinal coding used for the monotone trend test. LLM-LLM-cross shares
+  # code 2 with LLM-LLM: both sides are LLMs, only the pairing differs. The
+  # tie means the trend test should run on one AA condition at a time -- use
+  # the same-vs-cross contrast, not the trend, to compare the two.
   llmness:
     HH: 0
     H-LLM: 1
     LLM-LLM: 2
+    LLM-LLM-cross: 2
 
   # The annotation file now contains the FULL corpus (212 stories), including
   # stories nobody has rated yet. Keeping them means the computational measures
@@ -88,3 +95,68 @@ surprisal:
   save_raw_terms: true
 
   progress: true
+
+# ---------------------------------------------------------------------------
+# Cross-model LLM-LLM simulation (scripts/00a_simulate_cross_model.py)
+#
+# The EMNLP LLM-LLM condition paired each model with itself. Here the design is
+# the full model x model grid: with four models that is 16 ordered cells, four
+# self-pairs and twelve cross-model ones. Order matters off the diagonal --
+# the opener writes into an empty story, the responder always into someone
+# else's prose -- so (A starts, B replies) and (B starts, A replies) are
+# separate cells.
+#
+# 7 stories per cell = 112 stories. Set stories_per_pair: 6 for 96 instead;
+# both are balanced. Use --n-stories to hit an exact total at the cost of
+# balance.
+# ---------------------------------------------------------------------------
+cross_simulation:
+  # 'all' = full grid including self-pairs (default), 'cross' = off-diagonal
+  # cells only, 'same' = diagonal only, which reproduces the EMNLP design.
+  pairing: all
+  stories_per_pair: 7
+
+  n_turns_per_story: 10
+  max_turns: 10
+  temperature: 1.0       # matches LLM_HYPERPARAMS.TEMPERATURE in the experiment
+  max_tokens: 40         # roughly the experiment's USER_INPUT_LIMITS char range
+  delay_between_stories: 2.0
+  seed: 42
+
+  # Condition code written to the story table. Kept distinct from `aa` so the
+  # existing 80 same-model stories stay a separate condition and same-model vs
+  # cross-model can be contrasted.
+  condition: aa_cross
+
+  paths:
+    raw_turns: data/interim/stories/aa_cross_turns.csv
+    story_table: data/interim/stories/ai-ai-cross_stories_full_text_filtered.csv
+    id_map: data/interim/stories/aa_cross_id_map.csv
+    run_metadata: data/interim/stories/aa_cross_run_metadata.json
+
+  # Same four models as the EMNLP simulation, on the same transports.
+  # Do not change these -- the point of the cross-model condition is to vary
+  # the pairing, not the models.
+  models:
+    - id: gpt-4.1-2025-04-14
+      provider: openai
+      model_name: gpt-4.1-2025-04-14
+      env_key: OPENAI_API_KEY
+
+    - id: claude-sonnet-4-5-20250929
+      provider: anthropic
+      model_name: claude-sonnet-4-5-20250929
+      base_url: https://api.anthropic.com/v1/
+      env_key: ANTHROPIC_API_KEY
+
+    - id: llama-70b
+      provider: huggingface
+      model_name: meta-llama/Llama-3.3-70B-Instruct
+      base_url: https://router.huggingface.co/v1
+      env_key: OPENROUTER_API_KEY
+
+    - id: qwen-72b
+      provider: huggingface
+      model_name: Qwen/Qwen2.5-72B-Instruct
+      base_url: https://router.huggingface.co/v1
+      env_key: OPENROUTER_API_KEY

@@ -9,6 +9,9 @@ Unlike the annotation set (which covers 147 stories: 91 ha, 36 hh, 20 aa), this
 includes *every* story, so the LLM-LLM condition contributes all 80 rather than
 the 20 that were annotated. Total: 216 stories (100 ha, 36 hh, 80 aa).
 
+The cross-model LLM-LLM condition (`aa_cross`) is included when
+scripts/00a_simulate_cross_model.py has been run; its file is skipped if absent.
+
 Input:  data/interim/stories/<condition>_stories_full_text_filtered.csv
 Output: data/interim/stories/full_stories_all.csv
 """
@@ -23,7 +26,13 @@ CONDITIONS = {
     "human-ai": "ha",
     "human-human": "hh",
     "ai-ai": "aa",
+    # Cross-model LLM-LLM, produced by scripts/00a_simulate_cross_model.py.
+    # Absent until that script has been run, so a missing file is not an error.
+    "ai-ai-cross": "aa_cross",
 }
+
+# Conditions whose interim file may legitimately not exist yet.
+OPTIONAL_CONDITIONS = {"ai-ai-cross"}
 
 # Data-quality exclusions carried over from the EMNLP pipeline so the two papers
 # work from the same story set. Both were already dropped before these interim
@@ -45,6 +54,9 @@ def main():
     frames = []
     for condition, short in CONDITIONS.items():
         path = indir / f"{condition}_stories_full_text_filtered.csv"
+        if not path.exists() and condition in OPTIONAL_CONDITIONS:
+            print(f"{condition:12s}   -  not generated yet, skipping")
+            continue
         df = pd.read_csv(path)[["conversation_id", "full_story"]]
         df["condition"] = short
         print(f"{condition:12s} {len(df):3d} stories  <- {path.name}")

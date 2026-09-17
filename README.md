@@ -17,8 +17,10 @@ data/
     ├── embeddings/        embedding metadata
     └── rqa/               story recurrence metrics, matrices, and lag profiles
 scripts/                00 build story table -> 01 embed -> 02 metrics -> 03 surprisal
+                        00a simulates the cross-model LLM-LLM condition
 src/story_recurrence/   the recurrence metric implementations
 src/surprisal_ntr/      the surprisal and stylometry implementations
+src/cross_sim/          the cross-model simulation
 ```
 
 ## The corpus
@@ -29,7 +31,12 @@ Three conditions, using the short codes the annotation file uses:
 |---|---|---|---|
 | `ha` | human + LLM | 100 | 91 |
 | `hh` | human + human | 36 | 36 |
-| `aa` | LLM + LLM | 80 | **20** |
+| `aa` | LLM + LLM, each model with itself | 80 | **20** |
+| `aa_cross` | LLM + LLM, full model × model grid | 112 | – |
+
+`aa_cross` is generated here rather than inherited from the EMNLP corpus; see
+**The cross-model condition** below. It is absent until you run
+`scripts/00a_simulate_cross_model.py`, and every step skips it cleanly when it is.
 
 The annotation set covers 147 stories. The remaining 60 LLM-LLM stories were never
 rated but their text is included, so structural measures can be computed on the full
@@ -39,6 +46,67 @@ subset.
 `scripts/00_build_story_table.py` assembles `data/interim/stories/full_stories_all.csv`
 (216 rows: `conversation_id`, `full_story`, `condition`) from the per-condition interim
 files.
+
+## The cross-model condition
+
+The EMNLP LLM-LLM condition paired every model with itself, which confounds two
+things: being written by an LLM, and being written by *one* LLM with its own
+prose to continue. `scripts/00a_simulate_cross_model.py` separates them by
+running the full model × model grid.
+
+With M models there are M² ordered cells. For the four PenPal models that is 16:
+4 self-pairs on the diagonal, 12 cross-model cells off it. Order matters off the
+diagonal, because the opener writes into an empty story and the responder always
+writes into someone else's prose, so *gpt-4.1 opens to claude* and *claude opens
+to gpt-4.1* are different cells. On the diagonal the distinction is vacuous, but
+the cell is kept so the grid stays a clean M × M factorial and the same-model
+condition is regenerated under identical settings rather than borrowed.
+
+Default is 7 stories per cell: **112 stories, 1120 turns, 2240 generation
+calls**. `stories_per_pair: 6` gives 96 instead; both are balanced. `--n-stories
+100` hits an exact total by giving the first four cells one extra story, which
+costs the balance.
+
+```bash
+python scripts/00a_simulate_cross_model.py --dry-run   # grid and call count, no API
+python scripts/00a_simulate_cross_model.py             # the real run
+python scripts/00a_simulate_cross_model.py --resume    # continue after an interruption
+```
+
+Generation is unchanged from PenPal-EMNLP `src/nes/simulation.py`: both sides get
+the same prompt, per-provider context handling matches the experiment's adapters,
+responses that echo the partner are stripped, and both outputs are truncated by
+2–5 words before being saved and passed on. `src/cross_sim/providers.py` and
+`prompts.py` are verbatim copies, so the new stories stay comparable with the
+existing 80; changes to how a turn is generated belong upstream first.
+
+Needs `OPENAI_API_KEY`, `ANTHROPIC_API_KEY` and `OPENROUTER_API_KEY` in the
+environment or a `.env` file. Cells whose models have no key are skipped with a
+warning rather than failing the run, and each finished story is appended to the
+raw CSV immediately, so an interrupted run loses at most one story.
+
+### What it writes
+
+| file | contents |
+|---|---|
+| `data/interim/stories/aa_cross_turns.csv` | one row per turn; the checkpoint `--resume` reads |
+| `data/interim/stories/ai-ai-cross_stories_full_text_filtered.csv` | one row per story, same shape as the other conditions |
+| `data/interim/stories/aa_cross_id_map.csv` | `story_id` → `conversation_id` |
+| `data/interim/stories/aa_cross_run_metadata.json` | settings, grid, per-cell counts |
+
+Story-level model columns: `model_starter` and `model_responder` are the ones to
+analyse by — they are invariant to the author-column counterbalancing. The
+`author_1`/`author_2` labels are swapped for a seeded ~50% of stories, exactly as
+the EMNLP pipeline did, so `author_1` does not become a synonym for "went first";
+`starter` records which column holds the opener, and `model_author_1` /
+`model_author_2` follow the swap. `pair_id` is the ordered cell
+(`starter>responder`), `dyad_id` collapses the two directions of a cross pair,
+and `model_id` mirrors `pair_id` because no single model id is meaningful for a
+cross-model story.
+
+Both AA conditions get `llmness: 2` in `config.yaml` — both sides are LLMs, only
+the pairing differs. The tie means the monotone trend test should run on one AA
+condition at a time; compare the two with the same-vs-cross contrast instead.
 
 ## Install
 
@@ -55,7 +123,12 @@ power-law and linear fits still work.
 Three steps. Step 01 is GPU-bound and slow; step 02 is CPU-only and fast, so
 thresholds can be re-tuned without re-embedding.
 
+Step 00a is optional and upstream of the rest: it generates the cross-model
+condition by calling the model APIs, so run it only when you want that condition
+(see **The cross-model condition**).
+
 ```bash
+python scripts/00a_simulate_cross_model.py   # optional, costs API calls
 python scripts/00_build_story_table.py
 ```
 
@@ -226,5 +299,7 @@ profiles are close to flat and `decay_lambda` should not be the headline decay m
 
 Independent, not submodules — the analyses share a corpus but nothing else.
 
-- `penpal-emnlp` — turn-level alignment and narrative agency across the three conditions
+- `penpal-emnlp` — turn-level alignment and narrative agency across the three conditions. Its
+  `src/nes/simulation.py` is the source the cross-model simulation here was ported from; it is
+  the paper's replication pipeline and is not modified by this work
 - `penpal-nlp4dh` — the earlier NLP4DH paper (Human–AI condition only)
