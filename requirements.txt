@@ -7,3 +7,10 @@ sentence-transformers>=3.0
 accelerate>=0.30
 tqdm>=4.65
 spacy>=3.7
+pyyaml>=6.0
+
+# Simulation only (scripts/00a_simulate_cross_model.py). Every provider is
+# reached through the OpenAI-compatible client, matching the experiment's
+# adapters.
+openai>=1.40
+python-dotenv>=1.0
