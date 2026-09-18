@@ -1,10 +1,10 @@
 {
   "step": "02_compute_metrics",
-  "timestamp": "2026-08-07T14:04:20.338669",
+  "timestamp": "2026-08-12T17:43:08.689549",
   "n_stories": 212,
   "theiler": 0,
-  "target_rr": 0.15,
-  "epsilon_fixed_corpus": 0.3058628439903259,
+  "target_rr": 0.05,
+  "epsilon_fixed_corpus": 0.2538003921508789,
   "l_min": 2,
   "v_min": 2,
   "edge_frac": 0.2,

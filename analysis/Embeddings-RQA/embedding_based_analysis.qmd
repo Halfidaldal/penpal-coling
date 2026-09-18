@@ -66,9 +66,18 @@ df_lag %>%
     .groups = "drop"
   ) %>%
   knitr::kable(caption = "Loaded data by condition")
+
 ```
 
 
 ```{r}
-summarize_by_condition(df_raw, "rr_ENTR")
+summarize_by_condition(df_raw, "straightness")
+
+annotation_trajectory_model <- lm(mean_coherence_element_consistency ~ mean_step * cond, data = df_raw)
+
+summary(annotation_trajectory_model)
+```
+
+```{r}
+plot_metric_boxplots(df_raw, "mean_coherence_element_consistency", "mean_step", "Step cosine")
 ```
