@@ -37,6 +37,7 @@ import numpy as np
 import pandas as pd
 
 from story_recurrence.segmentation import segment_corpus
+import penpal_segmentation as canon
 from story_recurrence.embedding import embed_sentences, DEFAULT_MODEL, get_device
 from story_recurrence.io_utils import (
     load_stories, save_embeddings, save_metadata, sentence_index,
@@ -55,6 +56,13 @@ def parse_args():
     p.add_argument("--dtype", default="auto",
                    choices=["auto", "float32", "float16", "bfloat16"])
     p.add_argument("--device", default=None, help="cuda / cpu / mps (auto if unset)")
+    p.add_argument("--sentence-index", default="data/interim/annotations/sentence_index.csv",
+                   help="canonical sentence index (built by scripts/00b_build_sentence_index.py). "
+                        "Consumed by default so sent_idx matches the surprisal pipeline; "
+                        "pass --resegment to split locally instead.")
+    p.add_argument("--resegment", action="store_true",
+                   help="ignore the canonical index and segment locally (NOT recommended: "
+                        "sent_idx will not align with the other pipelines)")
     p.add_argument("--segmenter", default="spacy", choices=["spacy", "regex"])
     p.add_argument("--spacy-model", default="en_core_web_md")
     p.add_argument("--min-sentence-words", type=int, default=3,
@@ -75,14 +83,33 @@ def main():
         condition_col=args.condition_col,
     )
 
-    print(f"\nSegmenting with '{args.segmenter}' "
-          f"(min {args.min_sentence_words} words per sentence)...")
-    story_sentences = segment_corpus(
-        stories["text"].to_dict(),
-        segmenter=args.segmenter,
-        spacy_model=args.spacy_model,
-        min_words=args.min_sentence_words,
-    )
+    # Prefer the canonical sentence index: sentence i must mean the same thing
+    # here as in the surprisal pipeline, otherwise per-sentence measures cannot
+    # be joined on (story_id, sent_idx).
+    index_path = Path(args.sentence_index)
+    if not args.resegment and index_path.exists():
+        print(f"\nUsing canonical sentence index: {index_path}")
+        sent_index = canon.load_sentence_index(index_path)
+        by_story = canon.sentences_by_story(sent_index)
+        missing = [s for s in stories.index if s not in by_story]
+        if missing:
+            print(f"[WARNING] {len(missing)} story/ies absent from the index: {missing[:5]}")
+        story_sentences = {s: by_story.get(s, []) for s in stories.index}
+        segmentation_source = str(index_path)
+    else:
+        if not args.resegment:
+            print(f"\n[WARNING] {index_path} not found — segmenting locally. "
+                  f"sent_idx will NOT be guaranteed to align with the surprisal "
+                  f"pipeline. Run scripts/00b_build_sentence_index.py first.")
+        print(f"Segmenting with '{args.segmenter}' "
+              f"(min {args.min_sentence_words} words per sentence)...")
+        story_sentences = segment_corpus(
+            stories["text"].to_dict(),
+            segmenter=args.segmenter,
+            spacy_model=args.spacy_model,
+            min_words=args.min_sentence_words,
+        )
+        segmentation_source = "local"
 
     counts = {sid: len(s) for sid, s in story_sentences.items()}
     n_sent = np.array(list(counts.values()))
@@ -133,6 +160,7 @@ def main():
             "device": str(device),
             "batch_size": args.batch_size,
             "instruction": args.instruction,
+            "segmentation_source": segmentation_source,
             "segmenter": args.segmenter,
             "spacy_model": args.spacy_model if args.segmenter == "spacy" else None,
             "min_sentence_words": args.min_sentence_words,

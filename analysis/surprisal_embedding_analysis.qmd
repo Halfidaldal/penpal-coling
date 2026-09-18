@@ -1,0 +1,126 @@
+---
+title: "Analysis A: Convergent Validity (LLM Surprisal vs. Embedding Steps)"
+author: "Halfdan"
+format:
+  html:
+    toc: true
+    code-fold: show
+    theme: cosmo
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE, fig.width = 8, fig.height = 5)
+
+library(tidyverse)
+library(lme4)
+library(lmerTest)
+library(knitr)
+library(broom)
+root_dir <- if (basename(getwd()) == "analysis") ".." else "."
+venv_python <- file.path(root_dir, ".venv", "bin", "python")
+if (file.exists(venv_python)) {
+  Sys.setenv(RETICULATE_PYTHON = venv_python)
+}
+
+library(reticulate)
+
+theme_set(theme_minimal(base_size = 13))
+
+condition_colors <- c(
+  "HH"      = "#2ca02c",  # Green
+  "H-LLM"   = "#1f77b4",  # Blue
+  "LLM-LLM" = "#ff7f0e"   # Orange
+)
+root_dir <- if (basename(getwd()) == "analysis") ".." else "."
+embedding_matrix_path <- file.path(root_dir, "data", "interim", "embeddings", "sentence_embeddings.npz")
+distance_matrix_path  <- file.path(root_dir, "data", "processed", "rqa", "distance_matrices.npz")
+surprisal_path        <- file.path(root_dir, "data", "processed", "surprisal", "surprisal_unit_level.csv")
+
+condition_levels <- c("HH", "H-LLM", "LLM-LLM")
+
+df_surprisal <- read_csv(surprisal_path, show_col_types = FALSE) %>%
+  mutate(cond = factor(cond, levels = condition_levels),
+         llm  = as.numeric(cond) - 1) %>% 
+  rename(story_id = id)
+
+# 2. Extract local steps (step_in, step_out) and history-aware metrics (novelty_centroid, path_detour)
+np <- import("numpy")
+dists <- np$load(distance_matrix_path)
+embs  <- np$load(embedding_matrix_path)
+
+step_df <- map_dfr(embs$files, function(story_id) {
+  E <- embs$get(story_id)
+  D <- dists$get(story_id)
+  n <- nrow(E)
+  if (n < 2) return(NULL)
+  
+  # Local consecutive step distances
+  diag_step <- diag(D[-1, -ncol(D)]) 
+  step_in   <- c(NA_real_, diag_step)
+  step_out  <- c(diag_step, NA_real_)
+  
+  # History-aware metrics: Novelty Centroid & Path Detour
+  nov_cent <- numeric(n)
+  nov_cent[1] <- NA_real_
+  detour   <- numeric(n)
+  detour[1] <- NA_real_
+  detour[n] <- NA_real_
+  
+  for (i in 2:n) {
+    # Running history centroid of sentences 1 to (i-1)
+    c_prev <- colMeans(E[1:(i-1), , drop=FALSE])
+    c_norm <- sqrt(sum(c_prev^2))
+    e_i    <- E[i, ]
+    
+    # Distance to running history centroid
+    if (c_norm > 0) {
+      nov_cent[i] <- 1 - sum(c_prev * e_i) / c_norm
+    } else {
+      nov_cent[i] <- NA_real_
+    }
+    
+    # Path detour for sentence i (if not last sentence)
+    if (i < n) {
+      e_next <- E[i+1, ]
+      d1 <- nov_cent[i]
+      d2 <- 1 - sum(e_i * e_next)
+      d3 <- if (c_norm > 0) 1 - sum(c_prev * e_next) / c_norm else NA_real_
+      detour[i] <- d1 + d2 - d3
+    }
+  }
+  
+  tibble(
+    story_id = story_id,
+    sent_idx = 0:(n - 1),
+    step_in = step_in,
+    step_out = step_out,
+    novelty_centroid = nov_cent,
+    path_detour = detour
+  )
+})
+
+df_analysis_combined <- df_surprisal %>%
+  left_join(step_df, by = c("story_id", "sent_idx"))
+``` 
+
+## Part 2: History-Aware Trajectory Models (Centroid Distance & Path Detour)
+
+```{r history-aware-models}
+# Novelty vs Distance to Running History Centroid
+m_novelty_centroid <- lmer(s_novelty ~ novelty_centroid + n_unit_words + (1 | story_id), data = df_analysis_combined)
+summary(m_novelty_centroid)
+
+# Transience vs Path Detour (Triangle Deficit)
+m_transience_detour <- lmer(s_transience ~ path_detour + n_unit_words + (1 | story_id), data = df_analysis_combined)
+summary(m_transience_detour)
+
+# History-Aware Novelty Interaction by Condition
+m_interaction_centroid <- lmer(s_novelty ~ novelty_centroid * cond + n_unit_words + (1 | story_id), data = df_analysis_combined)
+summary(m_interaction_centroid)
+
+# History-Aware Transience Interaction by Condition
+m_interaction_detour <- lmer(s_transience ~ path_detour * cond + n_unit_words + (1 | story_id), data = df_analysis_combined)
+summary(m_interaction_detour)
+```
+

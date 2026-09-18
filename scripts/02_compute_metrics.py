@@ -74,6 +74,7 @@ def main():
     args = parse_args()
     indir = Path(args.indir)
     outdir = Path(args.outdir)
+    outdir.mkdir(parents=True, exist_ok=True)
 
     emb_path = indir / "sentence_embeddings.npz"
     if not emb_path.exists():

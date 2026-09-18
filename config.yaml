@@ -6,10 +6,16 @@
 paths:
   # Inputs
   annotations: data/interim/annotations/penpal_annotations_final.csv
+  # Canonical sentence units, shared by every pipeline (built by script 00b).
+  sentence_index: data/interim/annotations/sentence_index.csv
   # Outputs
   story_metrics: data/processed/surprisal/penpal_measures_all.csv
   window_metrics: data/processed/surprisal/surprisal_window_level.csv
   run_metadata: data/processed/surprisal/surprisal_run_metadata.json
+  # Endpoint predictability (step 04)
+  endpoint_metrics: data/processed/endpoint/endpoint_metrics.csv
+  endpoint_trajectories: data/processed/endpoint/endpoint_trajectories.csv
+  endpoint_metadata: data/processed/endpoint/endpoint_run_metadata.json
 
 data:
   id_col: id
@@ -52,6 +58,18 @@ data:
     creativity_comp: [originality, surprisingness]
     attract_comp: [enjoyment, quality]
 
+segmentation:
+  # Canonical sentence units. Built ONCE by scripts/00b_build_sentence_index.py
+  # and consumed by every downstream step, so that sent_idx means the same thing
+  # in the embedding, surprisal and endpoint pipelines. Re-segmenting per script
+  # is what previously made 72% of stories misalign: regex does not split after a
+  # closing quotation mark, which is pervasive in dialogue.
+  segmenter: spacy          # spacy (handles dialogue/abbreviations) | regex
+  spacy_model: en_core_web_md
+  # Keep every sentence: units are appended to the context the LM conditions on,
+  # so filtering here would delete story text. Filter on n_words at analysis time.
+  min_words: 1
+
 stylometry:
   enabled: true
   # Corpus-relative semantic distinctiveness = 1 - cosine to nearest other story
@@ -66,7 +84,17 @@ surprisal:
   dtype: auto           # auto (bfloat16 on CUDA, float32 otherwise) | float32 | float16 | bfloat16
   hf_token: null        # prefer the HF_TOKEN environment variable; never commit a token
 
-  # Window length in WORDS. 14 is deliberately sub-turn: mean turn length in the
+  # Unit of analysis.
+  #   sentence : canonical sentences from paths.sentence_index. Aligns with the
+  #              embedding/RQA pipeline, so per-unit measures can be joined on
+  #              (story_id, sent_idx) -- required for the local-to-local analyses.
+  #              Note sentence length is condition-dependent (HH 13.8, H-LLM 17.4,
+  #              LLM-LLM 22.4 words), so carry n_words as a covariate.
+  #   window   : fixed-width word windows. Unit length is controlled by
+  #              construction, so this is the safer unit for condition contrasts.
+  unit: sentence
+
+  # Window length in WORDS, used only when unit: window. 14 is deliberately sub-turn: mean turn length in the
   # source corpus is 26-28 words, so a 14-word window sits mostly inside a single
   # author's contribution. This makes the measure local by design and keeps
   # windows from straddling author transitions.
@@ -87,4 +115,38 @@ surprisal:
   # be audited and the novelty/transience coupling diagnosed.
   save_raw_terms: true
 
+  progress: true
+
+endpoint:
+  # Endpoint predictability: how the surprisal of the story's ENDING falls as the
+  # story accumulates. Unlike the window measures this is genuinely global -- every
+  # point conditions on all preceding text against one fixed target -- so it asks
+  # whether a story builds toward its ending or arrives at it abruptly.
+  enabled: true
+
+  model_name: google/gemma-4-31b
+  device: auto          # auto | cuda | mps | cpu
+  dtype: auto           # auto (bfloat16 on CUDA, float32 otherwise) | float32 | float16 | bfloat16
+  max_context: null     # null = infer from the model config
+
+  # How the ending is defined.
+  #   last_sentences : the final `n_target_sentences` sentences
+  #   last_fraction  : the final `target_fraction` of sentences (at least one)
+  target_mode: last_sentences
+  n_target_sentences: 2
+  target_fraction: 0.1
+
+  # Stories with fewer body sentences than this yield NaN (the trajectory is too
+  # short for the shape statistics to mean anything).
+  min_body_sentences: 5
+
+  # Fraction of the body treated as the "tail" for the tail-drop ratio.
+  tail_fraction: 0.2
+
+  # Sentences come from paths.sentence_index (built by script 00b) so that this
+  # pipeline uses the same units as the embedding and surprisal pipelines.
+  # Set to false only to re-segment locally with the `segmentation` settings.
+  use_sentence_index: true
+
+  save_trajectories: true
   progress: true

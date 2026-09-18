@@ -79,12 +79,30 @@ def main():
         print("\n--- LM surprisal NTR ---")
         from surprisal_ntr import lm as lm_mod
 
+        unit_kind = surp_cfg.get("unit", "window")
+
+        # Sentence units come from the canonical index so that sent_idx matches
+        # the embedding/RQA pipeline exactly and the two can be joined.
+        sentence_index = None
+        if unit_kind == "sentence":
+            import penpal_segmentation as seg
+            idx_path = resolve_path(cfg, "paths.sentence_index")
+            if not idx_path.exists():
+                raise FileNotFoundError(
+                    f"{idx_path} not found. Run scripts/00b_build_sentence_index.py "
+                    f"first, or set surprisal.unit: window in config.yaml."
+                )
+            sentence_index = seg.load_sentence_index(idx_path)
+            print(f"Units: sentences from {idx_path} ({len(sentence_index):,} total)")
+        else:
+            print(f"Units: {surp_cfg['window_words']}-word windows")
+
         lm_bundle = lm_mod.load_model(surp_cfg, hf_token=resolve_token(cfg))
-        print(f"Window: {surp_cfg['window_words']} words | "
-              f"max context: {lm_bundle.max_context} tokens")
+        print(f"Max context: {lm_bundle.max_context} tokens")
 
         summary_df, window_df = ntr.compute_corpus_ntr(
-            story, lm_bundle, surp_cfg, progress=progress
+            story, lm_bundle, surp_cfg,
+            sentence_index=sentence_index, progress=progress
         )
         story = story.join(summary_df)
 
@@ -108,8 +126,11 @@ def main():
         win_out = resolve_path(cfg, "paths.window_metrics")
         win_out.parent.mkdir(parents=True, exist_ok=True)
         window_df.to_csv(win_out, index=False)
-        print(f"Saved window metrics -> {win_out} ({len(window_df)} windows, "
+        print(f"Saved unit metrics -> {win_out} ({len(window_df)} units, "
               f"mean {window_df.groupby('id').size().mean():.1f} per story)")
+        if "sent_idx" in window_df.columns:
+            print("  carries sent_idx: joinable to the embedding/RQA per-sentence "
+                  "measures on (id, sent_idx)")
 
     meta_out = resolve_path(cfg, "paths.run_metadata")
     meta = {
