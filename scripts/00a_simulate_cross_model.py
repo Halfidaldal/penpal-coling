@@ -39,7 +39,7 @@ Usage:
     python scripts/00a_simulate_cross_model.py --resume
 
 API keys are read from the environment or a .env file: OPENAI_API_KEY,
-ANTHROPIC_API_KEY, OPENROUTER_API_KEY. Cells whose models have no key are
+ANTHROPIC_API_KEY, HF_API_KEY, OPENROUTER_API_KEY. Cells whose models have no key are
 skipped with a warning.
 """
 

@@ -18,6 +18,7 @@ Output: data/interim/stories/full_stories_all.csv
 import argparse
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -26,8 +27,6 @@ CONDITIONS = {
     "human-ai": "ha",
     "human-human": "hh",
     "ai-ai": "aa",
-    # Cross-model LLM-LLM, produced by scripts/00a_simulate_cross_model.py.
-    # Absent until that script has been run, so a missing file is not an error.
     "ai-ai-cross": "aa_cross",
 }
 
@@ -71,6 +70,30 @@ def main():
 
     print(f"\nWrote {len(combined)} stories -> {out}")
     print(combined["condition"].value_counts().to_string())
+
+    # Sync any stories not yet in the master annotation file (e.g. aa_cross)
+    # as unannotated rows (n_annotators = 0, ratings = NaN).
+    ann_path = ROOT / "data" / "interim" / "annotations" / "penpal_annotations_final.csv"
+    if ann_path.exists():
+        ann_df = pd.read_csv(ann_path)
+        existing_cids = set(ann_df["conversation_id"].dropna())
+        missing = combined[~combined["conversation_id"].isin(existing_cids)]
+        if not missing.empty:
+            new_rows = []
+            for _, row in missing.iterrows():
+                cid = row["conversation_id"]
+                new_row = {col: np.nan for col in ann_df.columns}
+                new_row["conversation_id"] = cid
+                new_row["condition"] = row["condition"]
+                new_row["id"] = cid
+                new_row["text"] = row["full_story"]
+                new_row["n_annotators"] = 0
+                new_rows.append(new_row)
+            updated_ann = pd.concat([ann_df, pd.DataFrame(new_rows)], ignore_index=True)
+            updated_ann.to_csv(ann_path, index=False)
+            print(f"\nSynced {len(new_rows)} unannotated stories into {ann_path.name} "
+                  f"(now {len(updated_ann)} stories)")
+            print(updated_ann["condition"].value_counts().to_string())
 
 
 if __name__ == "__main__":

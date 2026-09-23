@@ -14,8 +14,10 @@ import numpy as np
 import pandas as pd
 
 
-CONDITION_MAP = {"hh": "HH", "ha": "H-LLM", "aa": "LLM-LLM",
-                 "human-human": "HH", "human-ai": "H-LLM", "ai-ai": "LLM-LLM"}
+CONDITION_MAP = {
+    "hh": "HH", "ha": "H-LLM", "aa": "LLM-LLM", "aa_cross": "LLM-LLM-cross",
+    "human-human": "HH", "human-ai": "H-LLM", "ai-ai": "LLM-LLM", "ai-ai-cross": "LLM-LLM-cross",
+}
 
 
 def load_stories(

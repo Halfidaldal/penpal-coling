@@ -1,0 +1,133 @@
+{
+  "generated_at": "2026-09-18T16:54:55.557141+00:00",
+  "condition": "aa_cross",
+  "pairing_mode": "all",
+  "n_models": 4,
+  "model_ids": [
+    "gpt-4.1-2025-04-14",
+    "claude-sonnet-4-5-20250929",
+    "llama-70b",
+    "qwen-72b"
+  ],
+  "n_cells": 16,
+  "stories_planned": 112,
+  "stories_generated": 108,
+  "turns_per_story": 10,
+  "temperature": 1.0,
+  "max_tokens": 40,
+  "seed": 42,
+  "cells": [
+    {
+      "starter": "gpt-4.1-2025-04-14",
+      "responder": "gpt-4.1-2025-04-14",
+      "is_self_pair": true,
+      "stories_planned": 7,
+      "stories_generated": 7
+    },
+    {
+      "starter": "gpt-4.1-2025-04-14",
+      "responder": "claude-sonnet-4-5-20250929",
+      "is_self_pair": false,
+      "stories_planned": 7,
+      "stories_generated": 7
+    },
+    {
+      "starter": "gpt-4.1-2025-04-14",
+      "responder": "llama-70b",
+      "is_self_pair": false,
+      "stories_planned": 7,
+      "stories_generated": 7
+    },
+    {
+      "starter": "gpt-4.1-2025-04-14",
+      "responder": "qwen-72b",
+      "is_self_pair": false,
+      "stories_planned": 7,
+      "stories_generated": 7
+    },
+    {
+      "starter": "claude-sonnet-4-5-20250929",
+      "responder": "gpt-4.1-2025-04-14",
+      "is_self_pair": false,
+      "stories_planned": 7,
+      "stories_generated": 7
+    },
+    {
+      "starter": "claude-sonnet-4-5-20250929",
+      "responder": "claude-sonnet-4-5-20250929",
+      "is_self_pair": true,
+      "stories_planned": 7,
+      "stories_generated": 7
+    },
+    {
+      "starter": "claude-sonnet-4-5-20250929",
+      "responder": "llama-70b",
+      "is_self_pair": false,
+      "stories_planned": 7,
+      "stories_generated": 7
+    },
+    {
+      "starter": "claude-sonnet-4-5-20250929",
+      "responder": "qwen-72b",
+      "is_self_pair": false,
+      "stories_planned": 7,
+      "stories_generated": 6
+    },
+    {
+      "starter": "llama-70b",
+      "responder": "gpt-4.1-2025-04-14",
+      "is_self_pair": false,
+      "stories_planned": 7,
+      "stories_generated": 7
+    },
+    {
+      "starter": "llama-70b",
+      "responder": "claude-sonnet-4-5-20250929",
+      "is_self_pair": false,
+      "stories_planned": 7,
+      "stories_generated": 7
+    },
+    {
+      "starter": "llama-70b",
+      "responder": "llama-70b",
+      "is_self_pair": true,
+      "stories_planned": 7,
+      "stories_generated": 7
+    },
+    {
+      "starter": "llama-70b",
+      "responder": "qwen-72b",
+      "is_self_pair": false,
+      "stories_planned": 7,
+      "stories_generated": 6
+    },
+    {
+      "starter": "qwen-72b",
+      "responder": "gpt-4.1-2025-04-14",
+      "is_self_pair": false,
+      "stories_planned": 7,
+      "stories_generated": 7
+    },
+    {
+      "starter": "qwen-72b",
+      "responder": "claude-sonnet-4-5-20250929",
+      "is_self_pair": false,
+      "stories_planned": 7,
+      "stories_generated": 6
+    },
+    {
+      "starter": "qwen-72b",
+      "responder": "llama-70b",
+      "is_self_pair": false,
+      "stories_planned": 7,
+      "stories_generated": 7
+    },
+    {
+      "starter": "qwen-72b",
+      "responder": "qwen-72b",
+      "is_self_pair": true,
+      "stories_planned": 7,
+      "stories_generated": 6
+    }
+  ]
+}

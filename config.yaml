@@ -27,8 +27,6 @@ data:
     hh: HH
     ha: H-LLM
     aa: LLM-LLM
-    # Cross-model LLM-LLM, from scripts/00a_simulate_cross_model.py. Inert
-    # until that condition's stories exist.
     aa_cross: LLM-LLM-cross
   condition_order: [HH, H-LLM, LLM-LLM, LLM-LLM-cross]
   # Ordinal coding used for the monotone trend test. LLM-LLM-cross shares
@@ -181,12 +179,12 @@ cross_simulation:
       provider: huggingface
       model_name: meta-llama/Llama-3.3-70B-Instruct
       base_url: https://router.huggingface.co/v1
-      env_key: OPENROUTER_API_KEY
+      env_key: HF_API_KEY
 
     - id: qwen-72b
       provider: huggingface
-      model_name: Qwen/Qwen2.5-72B-Instruct
-      base_url: https://router.huggingface.co/v1
+      model_name: qwen/qwen-2.5-72b-instruct
+      base_url: https://openrouter.ai/api/v1
       env_key: OPENROUTER_API_KEY
 endpoint:
   # Endpoint predictability: how the surprisal of the story's ENDING falls as the

@@ -71,8 +71,8 @@ SPACY_MODEL = os.environ.get("SPACY_MODEL", "en_core_web_md")
 MIN_WORDS = int(os.environ.get("MIN_WORDS", "3"))
 
 CONDITION_MAP = {
-    "hh": "HH", "ha": "H-LLM", "aa": "LLM-LLM",
-    "human-human": "HH", "human-ai": "H-LLM", "ai-ai": "LLM-LLM",
+    "hh": "HH", "ha": "H-LLM", "aa": "LLM-LLM", "aa_cross": "LLM-LLM-cross",
+    "human-human": "HH", "human-ai": "H-LLM", "ai-ai": "LLM-LLM", "ai-ai-cross": "LLM-LLM-cross",
 }
 
 _SENT_RE = re.compile(r"(?<=[.!?])\s+")

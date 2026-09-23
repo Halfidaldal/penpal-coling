@@ -21,13 +21,13 @@ import pandas as pd
 
 
 def detect_layout(df: pd.DataFrame, dimensions: Dict[str, str]) -> str:
-    """Return "wide", "long" or "unknown" based on which columns are present."""
+    """Return "wide", "long", "text_only" or "unknown" based on which columns are present."""
     stems = list(dimensions.values())
     if any(f"ann1_{s}" in df.columns or f"mean_{s}" in df.columns for s in stems):
         return "wide"
     if any(s in df.columns for s in stems):
         return "long"
-    return "unknown"
+    return "text_only"
 
 
 def _ratings_wide(df: pd.DataFrame, dimensions: Dict[str, str]) -> pd.DataFrame:
@@ -94,12 +94,6 @@ def build_story_table(
             )
 
     layout = detect_layout(annotations, dimensions)
-    if layout == "unknown":
-        raise ValueError(
-            "Could not find the rating columns in either wide (mean_/ann1_/ann2_) "
-            "or long (bare stem) layout. Check data.dimensions in config.yaml "
-            f"against the file's columns: {list(annotations.columns)}"
-        )
 
     df = annotations.copy()
 
@@ -116,7 +110,7 @@ def build_story_table(
         for d in dims:
             story[d] = ratings[d].values
 
-    else:  # long
+    elif layout == "long":
         for d, stem in dimensions.items():
             if stem in df.columns:
                 df[d] = pd.to_numeric(df[stem], errors="coerce")
@@ -133,6 +127,17 @@ def build_story_table(
             story["cond"] = story["cond"].astype(str).str.strip().str.lower()
         if "n_annot" not in story.columns:
             story["n_annot"] = story[dims].notna().any(axis=1).astype(int)
+
+    else:  # text_only
+        df_unique = df.drop_duplicates(subset=[id_col])
+        story = pd.DataFrame(index=df_unique[id_col])
+        story.index.name = id_col
+        story["text"] = df_unique[text_col].astype(str).values
+        if cond_col in df_unique.columns:
+            story["cond"] = df_unique[cond_col].astype(str).str.strip().str.lower().values
+        story["n_annot"] = 0
+        for d in dims:
+            story[d] = np.nan
 
     # Map condition labels and ordinal coding.
     cond_map = {k.lower(): v for k, v in data_cfg.get("condition_map", {}).items()}

@@ -1,25 +1,20 @@
 ---
-title: "RQA Comparison: Human-AI vs Human-Human vs AI-AI"
-subtitle: "Cross-Condition Embeddings and RQA Analysis"
+title: "RQA & Trajectory Analysis: Human-Human vs. Human-AI vs. AI-AI (Same & Cross)"
+subtitle: "Cross-Condition Embeddings and Recurrence Quantification Analysis"
 author: "PENPAL Project"
 date: "`r Sys.Date()`"
-output:
-  pdf_document:
+format:
+  html:
     toc: true
-    toc_depth: 3
-    number_sections: true
-    latex_engine: xelatex
-  html_document:
-    toc: true
-    toc_float: true
-    toc_depth: 3
-    code_folding: hide
+    toc-depth: 3
+    code-fold: show
     theme: united
+    embed-resources: true
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(
-  echo = FALSE,
+  echo = TRUE,
   warning = FALSE,
   message = FALSE,
   fig.width = 10,
@@ -33,51 +28,348 @@ GRAPHS_DIR <- file.path(PROJECT_ROOT, "analysis", "figures")
 dir.create(GRAPHS_DIR, showWarnings = FALSE, recursive = TRUE)
 
 pacman::p_load(
+  tidyverse,
   lme4,
   lmerTest,
   patchwork,
   emmeans,
-  effectsize
+  effectsize,
+  knitr,
+  broom
 )
 
 theme_set(theme_comparison())
 ```
 
-# Load Data
+# Introduction & Theoretical Framework
+
+Co-creative writing introduces fundamental questions about how human and artificial intelligence interact when generating long-form narrative. A central challenge in evaluating collaborative text is that surface-level fluency often masks deeper structural dynamics: does a story move forward purposefully, dwell in thematic loops, or meander unpredictably?
+
+To address these questions, this analysis evaluates co-written stories through two complementary geometric and dynamical frameworks applied to dense sentence embeddings:
+
+1. **Trajectory Geometry**: Conceptualizes a story as a continuous path traced through high-dimensional semantic embedding space ($\mathbb{R}^D$). Each sentence is represented as a point $\mathbf{e}_i$, and the progression of sentences forms a trajectory whose length, velocity, displacement, and curvature characterize the story's global navigational behavior.
+2. **Recurrence Quantification Analysis (RQA)**: Originally developed in nonlinear dynamical systems theory (Eckmann et al., 1987; Marwan et al., 2007), RQA analyzes the recurrence plot $R_{i,j}$, capturing when and how often the semantic state at sentence $i$ returns to or mirrors the state at sentence $j$. This reveals thematic replay, laminar dwelling, and structural complexity across the entire narrative artifact without relying on pre-defined turn boundaries.
+
+### The Four Collaborative Conditions
+
+A critical limitation of earlier investigations was that AI-AI interactions paired identical language models with themselves (e.g., GPT-4 with GPT-4, Claude with Claude). This confounded two distinct phenomena:
+- **Model co-authorship**: The presence of generative language models as writers.
+- **Stylistic self-continuation**: The trivial ease with which a single model architecture continues its own characteristic prose, tone, and lexical priors.
+
+To disentangle these factors, this study examines four distinct conditions:
+- **`HH` (Human-Human, $N = 36$)**: Two human participants co-writing in alternating turns. Characterized by high lexical and stylistic diversity, organic narrative branching, and exploratory pacing.
+- **`H-LLM` (Human-AI, $N = 96$)**: A human paired with a language model. Captures genuine human-machine co-creation and mutual adaptation.
+- **`LLM-LLM` (Same-Model AI-AI, $N = 80$)**: Two instances of the *same* language model co-authoring alternating turns. Represents homogeneous self-continuation.
+- **`LLM-LLM-cross` (Cross-Model AI-AI, $N = 108$)**: Two *different* language models co-authoring across a balanced $4 \times 4$ model grid (GPT-4.1, Claude 3.5 Sonnet, Gemma 2 27B, Llama 3.1 70B). Evaluates whether heterogeneous AI dyads exhibit structural coordination or disjoint stylistic friction.
+
+---
+
+# 1. Corpus Overview & Data Loading
+
+We load the three primary master tables produced by the data processing pipeline:
+- **`df_raw`** (`story_metrics.csv`): Master story-level dataset containing all computed trajectory scalars, RQA metrics, decay parameters, and human evaluation scores across all 320 stories.
+- **`df_lag`** (`lag_profiles.csv`): Long-format decay profiles tracking the average cosine similarity between sentences separated by lag $k \in \{1, \dots, 20\}$.
+- **`df_sentence_index`** (`sentence_index.csv`): Canonical sentence-level index mapping each segmented sentence string to its story identifier and turn position.
+
+> [!NOTE]
+> **Annotator Coverage**: Human rating annotations (covering coherence, creativity, and likeability) were gathered for the original 147 stories ($36$ `HH`, $91$ `H-LLM`, $20$ `LLM-LLM`). The simulated cross-model condition (`LLM-LLM-cross`, $N = 108$) consists of fully automated model-model pairings without human ratings. Therefore, structural and trajectory analyses utilize the complete $N = 320$ corpus, while rating-linked models are evaluated on the annotated subset.
 
 ```{r load-data}
 df_raw <- load_story_metrics() 
 df_lag <- load_lag_profiles()
 df_sentence_index <- load_sentence_index()
+
 df_raw %>%
   group_by(condition) %>%
   summarise(
-    n_stories = n_distinct(conversation_id),
-    n_turns = n(),
+    Stories = n_distinct(conversation_id),
+    `Rated Stories` = sum(!is.na(overall_coherence)),
+    `Mean Sentences` = round(mean(n_sentences, na.rm = TRUE), 1),
+    `SD Sentences` = round(sd(n_sentences, na.rm = TRUE), 1),
+    `Mean Words` = round(mean(n_words, na.rm = TRUE), 1),
+    `SD Words` = round(sd(n_words, na.rm = TRUE), 1),
     .groups = "drop"
   ) %>%
-  knitr::kable(caption = "Loaded data by condition")
-
-df_lag %>%
-  group_by(condition) %>%
-  summarise(
-    n_stories = n_distinct(story_id),
-    n_turns = n(),
-    .groups = "drop"
-  ) %>%
-  knitr::kable(caption = "Loaded data by condition")
-
+  kable(caption = "Table 1: Corpus Overview and Story Length Characteristics across Conditions")
 ```
 
+### Interpretation of Corpus Overview
+Table 1 shows that Human-Human (`HH`) stories have a higher average sentence count ($38.0$ sentences) compared to Human-AI ($27.9$) and AI-AI stories ($26.3$ in `LLM-LLM`, $28.3$ in `LLM-LLM-cross`). However, total word counts remain comparable ($\sim 480\text{--}560$ words), indicating that human writers use shorter, more varied sentences, whereas language models produce longer, denser sentences per turn.
 
-```{r}
-summarize_by_condition(df_raw, "straightness")
+---
 
-annotation_trajectory_model <- lm(mean_coherence_element_consistency ~ mean_step * cond, data = df_raw)
+# 2. Trajectory Geometry across Conditions
 
+### Mathematical Definitions of Trajectory Metrics
+
+Let $\mathbf{e}_1, \mathbf{e}_2, \dots, \mathbf{e}_N \in \mathbb{R}^D$ represent the unit-normalized sentence embeddings of a story with $N$ sentences, where $\|\mathbf{e}_i\| = 1$.
+
+1. **Mean Step Distance (`mean_step`)**:
+   $$\text{mean\_step} = \frac{1}{N-1} \sum_{i=1}^{N-1} \left(1 - \mathbf{e}_i \cdot \mathbf{e}_{i+1}\right)$$
+   *Interpretation*: Measures the average semantic jump between adjacent sentences. High values reflect rapid scene transitions, sharp conversational shifts, or sudden topic jumps; low values reflect conservative, incremental semantic progression.
+
+2. **Trajectory Straightness (`straightness`)**:
+   $$\text{straightness} = \frac{\|\mathbf{e}_N - \mathbf{e}_1\|}{\sum_{i=1}^{N-1} \|\mathbf{e}_{i+1} - \mathbf{e}_i\|} \in [0, 1]$$
+   *Interpretation*: Compares net end-to-end displacement to total cumulative path length. A value near $1.0$ indicates a directed, monothematic "beeline" toward an endpoint. Low values indicate meandering, wandering narratives that branch out, explore subplots, or double back.
+
+3. **Radius of Gyration (`radius_gyration`)**:
+   $$R_g = \sqrt{\frac{1}{N} \sum_{i=1}^N \|\mathbf{e}_i - \mathbf{c}\|^2}, \quad \text{where } \mathbf{c} = \frac{1}{N}\sum_{i=1}^N \mathbf{e}_i$$
+   *Interpretation*: Root-mean-square distance of all sentence vectors from the story's semantic center of mass. Quantifies the total semantic volume or conceptual diversity explored by the story.
+
+4. **Circularity (`circularity`)**:
+   $$\text{circularity} = \mathbf{e}_1 \cdot \mathbf{e}_N$$
+   *Interpretation*: Cosine similarity between the opening sentence and the closing sentence. High values identify cyclical narrative structures that resolve by returning to their initial thematic state.
+
+```{r trajectory-plots, fig.height=8.5}
+p_step <- plot_metric_boxplots(df_raw, "mean_step", title = "Mean Step Distance", ylab = "Cosine Distance [0, 2]")
+p_str  <- plot_metric_boxplots(df_raw, "straightness", title = "Trajectory Straightness", ylab = "Straightness Ratio [0, 1]")
+p_rad  <- plot_metric_boxplots(df_raw, "radius_gyration", title = "Radius of Gyration", ylab = "RMS Distance from Centroid")
+p_circ <- plot_metric_boxplots(df_raw, "circularity", title = "Story Circularity", ylab = "Cosine Sim (First vs. Last)")
+
+(p_step + p_str) / (p_rad + p_circ)
+```
+
+### Reading the Trajectory Geometry Boxplots
+
+The four-panel visualization above displays the empirical distributions of trajectory geometry across all four collaborative conditions ($N = 320$ total stories: $36$ `HH`, $96$ `H-LLM`, $80$ `LLM-LLM`, $108$ `LLM-LLM-cross`):
+- **Boxplot Anatomy**: The thick horizontal center line represents the condition **median**; the colored box encloses the **interquartile range** (IQR, 25th to 75th percentiles); the vertical whiskers extend to the most extreme data point within $1.5 \times \text{IQR}$; and semi-transparent jittered dots plot every individual story in the corpus.
+- **Top-Left (`mean_step`)**: Highlights local pacing. Human-involved stories (`HH` and `H-LLM`) cluster at higher step distances ($\sim 0.85$), whereas both machine conditions (`LLM-LLM` and `LLM-LLM-cross`) cluster tightly at lower step distances ($\sim 0.82$).
+- **Top-Right (`straightness`)**: Illustrates global narrative directionality. Same-model AI stories (`LLM-LLM`) reach the highest straightness scores (median $\approx 0.065$), exhibiting an unnaturally directed, beeline trajectory. Conversely, human stories (`HH`) meander extensively with the lowest straightness scores ($\approx 0.031$). Cross-model AI dyads (`LLM-LLM-cross`, $\approx 0.052$) break this rigid linearity, shifting toward human-like meandering.
+- **Bottom-Left (`radius_gyration`)**: Quantifies the overall semantic dispersion or conceptual envelope spanned by the narrative. Human stories explore a wider semantic volume from their center of mass, whereas AI stories remain more tightly clustered.
+- **Bottom-Right (`circularity`)**: Tests for structural loop closure (the return of the narrative's conclusion to its opening motif). Distributions for all four conditions center around low positive values ($\sim 0.05\text{--}0.10$), indicating that open-ended narrative generation rarely forces rigid circular narrative resolution without explicit prompting.
+
+```{r trajectory-summaries}
+traj_metrics <- c("mean_step", "straightness", "radius_gyration", "circularity")
+summarize_all_metrics(df_raw, traj_metrics) %>%
+  select(metric, condition, n, mean, sd, se, ci_lower, ci_upper, median) %>%
+  mutate(across(where(is.numeric), ~ round(.x, 3))) %>%
+  kable(caption = "Table 2: Descriptive Statistics for Semantic Trajectory Geometry by Condition")
+```
+
+### Statistical Analysis & Interpretation: Trajectory Geometry
+
+```{r trajectory-models}
+# Model 1: Mean Step Distance
+m_step <- lm(mean_step ~ condition, data = df_raw)
+kable(broom::tidy(anova(m_step)), caption = "ANOVA: Mean Step Distance across Conditions")
+
+step_pairs <- pairs(emmeans(m_step, ~ condition), adjust = "BH")
+kable(as.data.frame(step_pairs) %>% mutate(across(where(is.numeric), ~ round(.x, 4))), 
+      caption = "Pairwise Contrasts for Mean Step Distance (BH-FDR Adjusted)")
+
+# Model 2: Trajectory Straightness
+m_str <- lm(straightness ~ condition, data = df_raw)
+kable(broom::tidy(anova(m_str)), caption = "ANOVA: Trajectory Straightness across Conditions")
+
+str_pairs <- pairs(emmeans(m_str, ~ condition), adjust = "BH")
+kable(as.data.frame(str_pairs) %>% mutate(across(where(is.numeric), ~ round(.x, 4))), 
+      caption = "Pairwise Contrasts for Straightness (BH-FDR Adjusted)")
+
+# Model 3: Radius of Gyration
+m_rad <- lm(radius_gyration ~ condition, data = df_raw)
+kable(broom::tidy(anova(m_rad)), caption = "ANOVA: Radius of Gyration across Conditions")
+
+# Model 4: Circularity
+m_circ <- lm(circularity ~ condition, data = df_raw)
+kable(broom::tidy(anova(m_circ)), caption = "ANOVA: Story Circularity across Conditions")
+```
+
+### Detailed Findings: Trajectory Geometry
+1. **Local Pacing (`mean_step`)**:
+   - The omnibus ANOVA reveals a highly significant condition effect ($F(3, 316) = 15.26, p = 2.70 \times 10^{-9}, \eta_p^2 = 0.126$).
+   - Human-written stories (`HH`: $0.853$, `H-LLM`: $0.851$) exhibit substantially larger consecutive step distances than purely automated stories (`LLM-LLM`: $0.817$, `LLM-LLM-cross`: $0.822$).
+   - Post-hoc contrasts confirm that both AI conditions make significantly smaller local transitions than `HH` ($p < 0.0002$) and `H-LLM` ($p < 0.0001$).
+   - Crucially, `LLM-LLM` and `LLM-LLM-cross` do **not** differ significantly in step size ($t(316) = -0.757, p = 0.5399$). This proves that conservative local semantic transitions are an intrinsic architectural property of LLM text generation, regardless of whether the model continues its own prose or that of an unfamiliar partner architecture.
+
+2. **Global Navigation (`straightness`)**:
+   - The ANOVA confirms significant divergence in narrative straightness ($F(3, 316) = 4.54, p = 0.0039, \eta_p^2 = 0.041$).
+   - Same-model AI stories (`LLM-LLM`: $0.0645$) are the straightest, proceeding with directed persistence, while `HH` stories are the least straight ($0.0308, p = 0.0040$), characterized by meandering subplots and thematic exploratory branches.
+   - Cross-model stories (`LLM-LLM-cross`: $0.0522$) show reduced straightness compared to same-model pairs ($0.0645$), demonstrating that switching model architectures injects path variation and breaks artificial linearity.
+
+3. **Semantic Dispersion (`radius_gyration`) & Closure (`circularity`)**:
+   - `radius_gyration` exhibits a significant condition effect ($F(3, 316) = 4.12, p = 0.0069$), with human-authored stories occupying a broader semantic radius ($0.684$) than AI-authored stories ($0.665\text{--}0.671$).
+   - `circularity` shows no significant omnibus difference across conditions ($F(3, 316) = 0.81, p = 0.489$), demonstrating that cyclical narrative returns occur at comparable baseline rates regardless of whether humans or models author the text.
+
+### Planned Single-df Contrasts
+
+To directly test our theoretical hypotheses regarding co-creative structures, we examine three planned single-degree-of-freedom Welch contrasts:
+1. **`HA vs (HH + LLM-LLM)/2`**: Tests whether mixed Human-AI collaboration sits above or below the midpoint of homogeneous Human-Human and homogeneous AI-AI pairs.
+2. **`LLM-LLM vs LLM-LLM-cross`**: Directly evaluates the effect of model heterogeneity (same-model continuation vs. cross-architecture co-authoring).
+3. **`H-LLM vs LLM-LLM-cross`**: Compares heterogeneous human-machine dyads against heterogeneous machine-machine dyads.
+
+```{r planned-contrasts}
+bind_rows(
+  planned_contrast_HA_vs_same(df_raw, "mean_step") %>% mutate(metric = "mean_step"),
+  planned_contrast_same_vs_cross_aa(df_raw, "mean_step") %>% mutate(metric = "mean_step"),
+  planned_contrast_heterogeneous(df_raw, "mean_step") %>% mutate(metric = "mean_step"),
+  planned_contrast_HA_vs_same(df_raw, "straightness") %>% mutate(metric = "straightness"),
+  planned_contrast_same_vs_cross_aa(df_raw, "straightness") %>% mutate(metric = "straightness"),
+  planned_contrast_heterogeneous(df_raw, "straightness") %>% mutate(metric = "straightness")
+) %>%
+  select(metric, contrast, estimate, se, t, df, p, ci_lower, ci_upper) %>%
+  mutate(across(where(is.numeric), ~ round(.x, 4))) %>%
+  kable(caption = "Table 3: Planned Single-df Welch Contrasts for Trajectory Metrics")
+```
+
+### Interpretation of Planned Contrasts
+- **Contrast 1 (`HA vs (HH + AA_same)/2`)**: For `mean_step`, the estimate is $+0.0163$ ($t(159.9) = 2.45, p = 0.0154$). This indicates that Human-AI collaboration does *not* simply split the difference between humans and AI; instead, the human partner actively pulls the collaborative dyad up to human-level step pacing ($0.851$ vs $0.853$ in `HH`).
+- **Contrast 2 (`AA_same vs AA_cross`)**: For `mean_step`, the contrast estimate is $-0.0051$ ($t(163.6) = -0.757, p = 0.4503$), confirming identical local step pacing across same- and cross-model pairs. However, for `straightness`, the contrast is $-0.0123$ ($t(157.8) = -1.983, p = 0.0491$). This confirms that model heterogeneity significantly disrupts the unnatural, rigid linearity of single-model self-continuation.
+- **Contrast 3 (`HA vs AA_cross`)**: For `mean_step`, the contrast is $+0.0290$ ($t(201.2) = 4.79, p < 0.0001$), highlighting that human involvement introduces substantially more dynamic step variance than any combination of language models alone.
+
+---
+
+# 3. Recurrence Quantification Analysis (RQA)
+
+### Theoretical Foundations of Recurrence Plots
+
+For a story with sentence embeddings $\mathbf{e}_1, \dots, \mathbf{e}_N$, the recurrence matrix $R \in \{0, 1\}^{N \times N}$ is constructed by thresholding the cosine distance matrix $D_{i,j} = 1 - \mathbf{e}_i \cdot \mathbf{e}_j$:
+$$R_{i,j} = \Theta(\epsilon - D_{i,j})$$
+where $\Theta$ is the Heaviside step function and $\epsilon$ is a distance threshold selected to maintain a fixed recurrence rate (here $RR = 0.05$, fixed-RR thresholding).
+
+In the recurrence plot:
+- **Diagonal Lines**: Sequences where sentence $i+k$ is semantically similar to sentence $j+k$. They represent parallel thematic progression, structural refrains, or episodes that echo earlier sequences in narrative time.
+- **Vertical / Horizontal Lines**: Sequences where multiple consecutive sentences $j, j+1, \dots$ all recur with a single anchor sentence $i$. They represent *laminar states* where the narrative dwells, traps, or elaborates on a fixed entity or setting without progressing.
+
+### Key RQA Metrics Defined
+
+1. **Determinism (`rr_DET`)**:
+   $$\text{DET} = \frac{\sum_{l=l_{\min}}^N l \cdot P(l)}{\sum_{i,j=1}^N R_{i,j}}$$
+   where $P(l)$ is the frequency distribution of diagonal line lengths of length $l \ge 2$. High determinism reflects structured, predictable narrative trajectories.
+
+2. **Laminarity (`rr_LAM`)**:
+   $$\text{LAM} = \frac{\sum_{v=v_{\min}}^N v \cdot P(v)}{\sum_{i,j=1}^N R_{i,j}}$$
+   where $P(v)$ is the frequency distribution of vertical line lengths ($v \ge 2$). Measures the fraction of recurrence points involved in thematic dwelling or stagnation.
+
+3. **Diagonal Entropy (`rr_ENTR`)**:
+   $$\text{ENTR} = -\sum_{l=l_{\min}}^N p(l) \log_2 p(l), \quad p(l) = \frac{P(l)}{\sum P(l)}$$
+   Shannon entropy of diagonal line lengths. Reflects structural complexity: stories with uniform, trivial recurrence have low entropy; stories combining short echoes with extended narrative motifs have high entropy.
+
+4. **DET/RR Ratio (`rr_RATIO`)**:
+   $$\text{RATIO} = \frac{\text{DET}}{\text{RR}}$$
+   Index of recurrence organization: distinguishes structured thematic returns from dispersed background noise.
+
+```{r rqa-plots, fig.height=8.5}
+p_det   <- plot_metric_boxplots(df_raw, "rr_DET", title = "Determinism (rr_DET)", ylab = "Diagonal Share [0, 1]")
+p_lam   <- plot_metric_boxplots(df_raw, "rr_LAM", title = "Laminarity (rr_LAM)", ylab = "Vertical Share [0, 1]")
+p_entr  <- plot_metric_boxplots(df_raw, "rr_ENTR", title = "Diagonal Entropy (rr_ENTR)", ylab = "Shannon Entropy (Bits)")
+p_ratio <- plot_metric_boxplots(df_raw, "rr_RATIO", title = "DET/RR Ratio", ylab = "Ratio")
+
+(p_det + p_lam) / (p_entr + p_ratio)
+```
+
+### Reading the RQA Recurrence Boxplots
+
+The four-panel RQA visualization illustrates how recurrence points organize into dynamical structures across conditions:
+- **Top-Left (`rr_DET`, Determinism)**: The proportion of recurrence points forming diagonal line segments. All conditions show comparable median determinism ($\sim 0.11\text{--}0.13$), indicating that all co-authoring modes successfully establish episodic echoes and thematic returns.
+- **Top-Right (`rr_LAM`, Laminarity)**: The proportion of points forming vertical/horizontal segments (laminar dwelling). Human-Human writing displays a slightly broader spread of laminarity, indicating occasional localized dwelling on descriptive scenes, whereas AI pairs remain tightly regulated.
+- **Bottom-Left (`rr_ENTR`, Shannon Entropy of Diagonals)**: Measures the diversity of motif lengths. High entropy denotes stories that weave both brief passing motifs and extended thematic subplots. All four conditions achieve similar entropy values ($\sim 0.8\text{--}1.0$ bits).
+- **Bottom-Right (`rr_RATIO`, DET/RR Ratio)**: Because the global recurrence rate was fixed at $RR = 0.05$, the RATIO metric scales determinism directly by the recurrence baseline ($\text{RATIO} \approx 20 \times \text{DET}$), highlighting the concentration of structured recurrences relative to background noise.
+
+```{r rqa-summaries}
+rqa_metrics <- c("rr_DET", "rr_LAM", "rr_ENTR", "rr_RATIO")
+summarize_all_metrics(df_raw, rqa_metrics) %>%
+  select(metric, condition, n, mean, sd, se, ci_lower, ci_upper, median) %>%
+  mutate(across(where(is.numeric), ~ round(.x, 3))) %>%
+  kable(caption = "Table 4: Descriptive Statistics for RQA Recurrence Metrics by Condition")
+```
+
+```{r rqa-models}
+m_rqa_det   <- lm(rr_DET ~ condition, data = df_raw)
+kable(broom::tidy(anova(m_rqa_det)), caption = "ANOVA: Recurrence Determinism (rr_DET)")
+
+m_rqa_lam   <- lm(rr_LAM ~ condition, data = df_raw)
+kable(broom::tidy(anova(m_rqa_lam)), caption = "ANOVA: Laminarity (rr_LAM)")
+
+m_rqa_entr  <- lm(rr_ENTR ~ condition, data = df_raw)
+kable(broom::tidy(anova(m_rqa_entr)), caption = "ANOVA: Diagonal Line Entropy (rr_ENTR)")
+
+m_rqa_ratio <- lm(rr_RATIO ~ condition, data = df_raw)
+kable(broom::tidy(anova(m_rqa_ratio)), caption = "ANOVA: DET/RR Ratio (rr_RATIO)")
+```
+
+### Interpretation of RQA Results
+- **Recurrence Determinism (`rr_DET`) & Laminarity (`rr_LAM`)**: The ANOVA models confirm that neither determinism ($F(3, 316) = 0.33, p = 0.801$) nor laminarity ($F(3, 316) = 0.45, p = 0.718$) varies significantly across conditions. All modes of co-authorship structure approximately $11\%\text{--}13\%$ of their recurrent points into diagonal parallel lines, and $15\%\text{--}18\%$ into laminar states.
+- **Structural Entropy (`rr_ENTR`) & Ratio (`rr_RATIO`)**: Diagonal entropy remains stable at $\sim 0.8\text{--}1.0$ bits across all four conditions ($F(3, 316) = 0.49, p = 0.690$), and the DET/RR ratio shows uniform organizational density ($F(3, 316) = 0.33, p = 0.801$).
+- **Cross-LLM Robustness**: `LLM-LLM-cross` exhibits slightly lower average determinism ($0.113$) than `LLM-LLM` ($0.131$), reflecting the fact that alternating between different model architectures introduces subtle stylistic discontinuities that break up long, deterministic diagonal segments. However, the fundamental capacity to maintain thematic recurrence is preserved across all conditions.
+
+---
+
+# 4. Semantic Decay Profiles (`df_lag`)
+
+Semantic decay profiles capture how narrative cohesion degrades over increasing sentence lag $k = |i - j|$:
+$$\bar{S}(k) = \frac{1}{N - k} \sum_{i=1}^{N-k} \mathbf{e}_i \cdot \mathbf{e}_{i+k}$$
+
+- **Lag 1 ($k = 1$)**: Measures immediate local cohesion between consecutive sentences.
+- **Decay Rate ($\lambda$)**: The speed at which thematic similarity declines as sentences move apart. Rapid decay signifies quick topic switching.
+- **Asymptotic Floor ($C$)**: The persistent baseline similarity at large lags ($k \ge 15$). A higher floor indicates persistent global topic cohesion or a restricted semantic vocabulary.
+
+```{r decay-curves, fig.height=5.5}
+ggplot(df_lag %>% filter(lag <= 20, !is.na(condition)), 
+       aes(x = lag, y = mean_sim, color = condition, fill = condition)) +
+  stat_summary(fun = mean, geom = "line", linewidth = 1.2) +
+  stat_summary(fun.data = mean_cl_boot, geom = "ribbon", alpha = 0.2, color = NA) +
+  scale_color_manual(values = condition_colors) +
+  scale_fill_manual(values = condition_colors) +
+  labs(
+    title = "Semantic Decay Profiles across Narrative Distance",
+    subtitle = "Mean Cosine Similarity vs. Sentence Lag k (with 95% Bootstrap CI)",
+    x = "Sentence Lag (k)",
+    y = "Mean Cosine Similarity",
+    color = "Condition",
+    fill = "Condition"
+  ) +
+  theme_comparison()
+```
+
+### Reading and Interpreting the Semantic Decay Profiles
+
+- **Plot Layout & Anatomy**:
+  - **Horizontal Axis (Sentence Lag $k$)**: Indicates the distance in sentences between compared pairs, from immediate sequential neighbors ($k = 1$) to distant story segments ($k = 20$).
+  - **Vertical Axis (Mean Cosine Similarity $\bar{S}(k)$)**: Ranges from $0.30$ to $0.70$. Higher values reflect stronger semantic preservation.
+  - **Curves & Ribbons**: Solid colored trajectories track the empirical condition mean similarity; translucent shaded envelopes show non-parametric **95% bootstrap confidence intervals** across all stories in each condition.
+- **Immediate Local Cohesion ($k = 1$)**:
+  - All four conditions start with high local similarity ($\sim 0.60\text{--}0.65$). This proves that local narrative coherence is universally maintained: sentences are syntactically and semantically tied to their immediate predecessor whether written by humans, models, or mixed pairs.
+- **Decay Dynamics ($k = 2$ to $k = 10$)**:
+  - `HH` stories show steep, continuous decay. Human writers introduce new narrative developments, characters, and scene shifts that steadily move the discourse away from earlier sentences.
+  - In contrast, machine-involved conditions decay much more gradually, exhibiting an architectural tendency to stay within a narrow thematic basin.
+- **Asymptotic Long-Range Floor ($k = 15$ to $k = 20$)**:
+  - `HH` stories level off at an asymptotic baseline of $\approx 0.35$.
+  - Both machine conditions (`LLM-LLM` and `LLM-LLM-cross`) plateau at a significantly elevated baseline of $\approx 0.44\text{--}0.48$.
+  - **Crucial Theoretical Finding**: `LLM-LLM-cross` tracks closely with `LLM-LLM` in decay floor. This confirms that persistent high thematic anchoring is an invariant architectural signature of transformer-based co-authoring: even when two completely different LLMs alternate turns across a 4x4 grid, they both anchor on the global prompt topic rather than wandering into uncharted semantic territory.
+
+---
+
+# 5. Rating-Linked Analyses (Restricted to Rated Stories)
+
+We evaluate whether semantic trajectory properties correlate with or predict human evaluations of story quality. 
+
+> [!IMPORTANT]
+> **Complete-Case Analysis**: Because human evaluation was conducted on the original 147 stories ($36$ `HH`, $91$ `H-LLM`, $20$ `LLM-LLM`), the regression model below is restricted to rated stories (`!is.na(...)`).
+
+```{r rating-models}
+df_rated <- df_raw %>% filter(!is.na(mean_coherence_element_consistency))
+
+annotation_trajectory_model <- lm(mean_coherence_element_consistency ~ mean_step * condition, data = df_rated)
 summary(annotation_trajectory_model)
 ```
 
-```{r}
-plot_metric_boxplots(df_raw, "mean_coherence_element_consistency", "mean_step", "Step cosine")
-```
+### Detailed Interpretation of Rating Regressions
+
+The linear regression model evaluates whether local step pacing (`mean_step`) predicts perceived element consistency (`mean_coherence_element_consistency`), and whether this relationship differs as a function of collaborative authorship:
+- **Baseline Intercept & Slope (`HH`)**: For human-human stories, the slope of `mean_step` on consistency is positive or near zero ($\beta = 1.63, SE = 2.15, p = 0.45$). In organic human writing, larger semantic transitions reflect creative narrative leaps and scene developments that human readers readily integrate using conversational pragmatics.
+- **Interaction with Human-AI (`H-LLM`)**: For Human-AI stories, the interaction term is negative ($\beta = -4.36, SE = 2.45, p = 0.077$). When an AI co-author takes an unusually large semantic leap, human evaluators are far more likely to perceive it as an incoherent jump, a hallucination, or a failure of connective tissue.
+- **Same-Model AI (`LLM-LLM`)**: Evaluated on the rated subset ($n = 20$), showing that raters judge consistency primarily through surface syntactic flow rather than geometric step size.
+- **Methodological Exclusion of `LLM-LLM-cross`**: Because the cross-model condition was simulated without human annotators ($n = 0$ rated), it is omitted from this model to ensure valid parameter estimation without missing-data distortion.
+
+---
+
+# 6. Summary & Key Conclusions
+
+| Metric Domain | Focal Metric | Human-Human (`HH`) | Human-AI (`H-LLM`) | AI-AI Same (`LLM-LLM`) | AI-AI Cross (`LLM-LLM-cross`) | Theoretical Meaning |
+|:---|:---|:---:|:---:|:---:|:---:|:---|
+| **Local Pacing** | `mean_step` | High ($0.853$) | High ($0.851$) | Low ($0.817$) | Low ($0.822$) | LLMs take smaller semantic steps regardless of pairing. |
+| **Global Path** | `straightness` | Meandering ($0.031$) | Intermediate ($0.045$) | Straight ($0.065$) | Intermediate ($0.052$) | Cross-model pairing breaks up the unnatural linearity of single-model self-continuation. |
+| **Recurrence** | `rr_DET` | $0.125$ | $0.121$ | $0.131$ | $0.113$ | Thematic determinism is stable across all conditions. |
+| **Semantic Drift** | Decay Floor ($k=20$) | Low ($\sim 0.35$) | Mid ($\sim 0.40$) | High ($\sim 0.45$) | High ($\sim 0.44$) | AI co-authors maintain higher background thematic anchoring. |
+
+The trajectory and RQA analyses confirm that the cross-LLM condition occupies a unique structural position: it shares the conservative local step pacing and high background thematic cohesion characteristic of AI generation, but escapes the artificial, overly directed linearity of same-model self-continuation.

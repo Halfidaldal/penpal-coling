@@ -8,7 +8,8 @@
   "unit": "sentence",
   "window_words": null,
   "common_index_range": true,
-  "n_stories": 212,
-  "n_units": 6324,
-  "identity_gap": 8.881784197001252e-16
+  "n_stories": 320,
+  "n_units": 9202,
+  "identity_gap": 8.881784197001252e-16,
+  "cross_condition_added": true
 }

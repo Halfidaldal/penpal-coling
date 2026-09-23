@@ -13,11 +13,12 @@ PROJECT_ROOT <- here::here()
 # =============================================================================
 
 # Canonical condition levels and labels
-CONDITION_LEVELS <- c("HH", "H-LLM", "LLM-LLM")
+CONDITION_LEVELS <- c("HH", "H-LLM", "LLM-LLM", "LLM-LLM-cross")
 CONDITION_LABELS <- c(
   "HH" = "Human-Human",
   "H-LLM" = "Human-AI",
-  "LLM-LLM" = "AI-AI"
+  "LLM-LLM" = "AI-AI",
+  "LLM-LLM-cross" = "AI-AI-cross"
 )
 
 # Color palette for conditions
@@ -25,9 +26,11 @@ condition_colors <- c(
   "HH" = "#2ca02c",          # Green for Human-Human
   "H-LLM" = "#1f77b4",       # Blue for Human-AI
   "LLM-LLM" = "#ff7f0e",     # Orange for AI-AI
+  "LLM-LLM-cross" = "#d62728", # Red for AI-AI-cross
   "Human-Human" = "#2ca02c",
   "Human-AI" = "#1f77b4",
-  "AI-AI" = "#ff7f0e"
+  "AI-AI" = "#ff7f0e",
+  "AI-AI-cross" = "#d62728"
 )
 
 # Metric family definitions matching story_metrics.csv columns
@@ -75,6 +78,7 @@ normalize_condition_id <- function(x) {
     str_detect(tolower(x), "^hh$|human-human|human_human") ~ "HH",
     str_detect(tolower(x), "^ha$|^h-llm$|human-ai|human_ai|h_llm") ~ "H-LLM",
     str_detect(tolower(x), "^aa$|^llm-llm$|ai-ai|ai_ai|llm_llm") ~ "LLM-LLM",
+    str_detect(tolower(x), "^aa_cross$|^ai-ai-cross$|ai-ai-cross|ai_ai_cross|llm-llm-cross|llm_llm_cross") ~ "LLM-LLM-cross",
     TRUE ~ x
   )
 }
@@ -326,7 +330,7 @@ planned_contrast_HA_vs_same <- function(df, value_col, ha_label = "H-LLM", hh_la
   aa_vals <- d[[value_col]][as.character(d[[group_var]]) == aa_label]
 
   if (length(ha_vals) < 2 || length(hh_vals) < 2 || length(aa_vals) < 2) {
-    return(tibble(contrast = "HA vs (HH+AA)/2", estimate = NA_real_, se = NA_real_, t = NA_real_, df = NA_real_, p = NA_real_))
+    return(tibble(contrast = sprintf("%s vs (%s + %s)/2", ha_label, hh_label, aa_label), estimate = NA_real_, se = NA_real_, t = NA_real_, df = NA_real_, p = NA_real_))
   }
 
   m_ha <- mean(ha_vals); v_ha <- var(ha_vals); n_ha <- length(ha_vals)
@@ -344,6 +348,76 @@ planned_contrast_HA_vs_same <- function(df, value_col, ha_label = "H-LLM", hh_la
 
   tibble(
     contrast = sprintf("%s vs (%s + %s)/2", ha_label, hh_label, aa_label),
+    estimate = est,
+    se = se,
+    t = t_stat,
+    df = df_welch,
+    p = p_val,
+    ci_lower = est - qt(0.975, df_welch) * se,
+    ci_upper = est + qt(0.975, df_welch) * se
+  )
+}
+
+#' Single-df planned contrast: Same-model AI (LLM-LLM) vs Cross-model AI (LLM-LLM-cross)
+planned_contrast_same_vs_cross_aa <- function(df, value_col, aa_label = "LLM-LLM", aa_cross_label = "LLM-LLM-cross", group_var = "cond") {
+  d <- df %>% filter(!is.na(.data[[value_col]]), !is.na(.data[[group_var]]))
+  
+  aa_vals <- d[[value_col]][as.character(d[[group_var]]) == aa_label]
+  cross_vals <- d[[value_col]][as.character(d[[group_var]]) == aa_cross_label]
+
+  if (length(aa_vals) < 2 || length(cross_vals) < 2) {
+    return(tibble(contrast = sprintf("%s vs %s", aa_label, aa_cross_label), estimate = NA_real_, se = NA_real_, t = NA_real_, df = NA_real_, p = NA_real_))
+  }
+
+  m_aa <- mean(aa_vals); v_aa <- var(aa_vals); n_aa <- length(aa_vals)
+  m_cr <- mean(cross_vals); v_cr <- var(cross_vals); n_cr <- length(cross_vals)
+
+  est <- m_aa - m_cr
+  se <- sqrt(v_aa / n_aa + v_cr / n_cr)
+  t_stat <- est / se
+
+  df_welch <- (v_aa / n_aa + v_cr / n_cr)^2 /
+    ((v_aa / n_aa)^2 / (n_aa - 1) + (v_cr / n_cr)^2 / (n_cr - 1))
+  
+  p_val <- 2 * pt(-abs(t_stat), df = df_welch)
+
+  tibble(
+    contrast = sprintf("%s vs %s", aa_label, aa_cross_label),
+    estimate = est,
+    se = se,
+    t = t_stat,
+    df = df_welch,
+    p = p_val,
+    ci_lower = est - qt(0.975, df_welch) * se,
+    ci_upper = est + qt(0.975, df_welch) * se
+  )
+}
+
+#' Single-df planned contrast: Heterogeneous dyads (Human-AI vs Cross-model AI)
+planned_contrast_heterogeneous <- function(df, value_col, ha_label = "H-LLM", aa_cross_label = "LLM-LLM-cross", group_var = "cond") {
+  d <- df %>% filter(!is.na(.data[[value_col]]), !is.na(.data[[group_var]]))
+  
+  ha_vals <- d[[value_col]][as.character(d[[group_var]]) == ha_label]
+  cross_vals <- d[[value_col]][as.character(d[[group_var]]) == aa_cross_label]
+
+  if (length(ha_vals) < 2 || length(cross_vals) < 2) {
+    return(tibble(contrast = sprintf("%s vs %s", ha_label, aa_cross_label), estimate = NA_real_, se = NA_real_, t = NA_real_, df = NA_real_, p = NA_real_))
+  }
+
+  m_ha <- mean(ha_vals); v_ha <- var(ha_vals); n_ha <- length(ha_vals)
+  m_cr <- mean(cross_vals); v_cr <- var(cross_vals); n_cr <- length(cross_vals)
+
+  est <- m_ha - m_cr
+  se <- sqrt(v_ha / n_ha + v_cr / n_cr)
+  t_stat <- est / se
+
+  df_welch <- (v_ha / n_ha + v_cr / n_cr)^2 /
+    ((v_ha / n_ha)^2 / (n_ha - 1) + (v_cr / n_cr)^2 / (n_cr - 1))
+  
+  p_val <- 2 * pt(-abs(t_stat), df = df_welch)
+
+  tibble(
+    contrast = sprintf("%s vs %s", ha_label, aa_cross_label),
     estimate = est,
     se = se,
     t = t_stat,

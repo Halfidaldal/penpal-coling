@@ -66,7 +66,9 @@ ID_COL = os.environ.get("ID_COL", "id")
 TEXT_COL = os.environ.get("TEXT_COL", "text")
 CONDITION_COL = os.environ.get("CONDITION_COL", "condition")
 
-CONDITION_MAP = {"hh": "HH", "ha": "H-LLM", "aa": "LLM-LLM"}
+CONDITION_MAP = {
+    "hh": "HH", "ha": "H-LLM", "aa": "LLM-LLM", "aa_cross": "LLM-LLM-cross",
+}
 SENT_REGEX = re.compile(r"(?<=[.!?])\s+")
 
 

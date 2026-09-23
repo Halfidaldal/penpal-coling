@@ -79,12 +79,14 @@ CONDITION_MAP = {
     "hh": "HH",
     "ha": "H-LLM",
     "aa": "LLM-LLM",
+    "aa_cross": "LLM-LLM-cross",
     "human-human": "HH",
     "human-ai": "H-LLM",
     "ai-ai": "LLM-LLM",
+    "ai-ai-cross": "LLM-LLM-cross",
 }
 
-LLMNESS = {"HH": 0, "H-LLM": 1, "LLM-LLM": 2}
+LLMNESS = {"HH": 0, "H-LLM": 1, "LLM-LLM": 2, "LLM-LLM-cross": 2}
 
 WORD_REGEX = re.compile(r"[A-Za-z']+")
 SENT_REGEX = re.compile(r"(?<=[.!?])\s+")
